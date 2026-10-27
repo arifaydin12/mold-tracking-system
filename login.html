@@ -1,0 +1,408 @@
+<!DOCTYPE html>
+<html lang="tr">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Giriş - Kalıp Takip Sistemi</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css"
+        integrity="sha512-DTOQO9RWCH3ppGqcWaEA1BIZOC6xxalwEsw9c2QQeAIftl+Vegovlnee1c9QX4TctnWMn13TZye+giMm8e2LwA=="
+        crossorigin="anonymous" referrerpolicy="no-referrer" />
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap');
+
+        * {
+            font-family: 'Inter', sans-serif;
+        }
+
+        .gradient-bg {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        }
+
+        .login-container {
+            /* Daha yumuşak bir giriş animasyonu için opacity ve transform'u birleştirdik */
+            animation: slideUp 0.6s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+            /* Smooth Cubic-Bezier added */
+        }
+
+        @keyframes slideUp {
+            from {
+                opacity: 0;
+                transform: translateY(30px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .input-group {
+            position: relative;
+        }
+
+        /* Odaklandığında simge rengini dinamikleştirme */
+        .input-group input:focus+.input-icon {
+            color: #667eea;
+        }
+
+        /* Floating Shapes Animasyonu iyileştirildi */
+        .floating-shapes {
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            z-index: 0;
+        }
+
+        .shape {
+            position: absolute;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 50%;
+            animation: float 25s infinite ease-in-out;
+            /* Daha yavaş ve uzun animasyon */
+            filter: blur(5px);
+            /* Daha yumuşak bir görünüm */
+        }
+
+        .shape:nth-child(1) {
+            width: 300px;
+            height: 300px;
+            top: -100px;
+            left: -100px;
+            animation-delay: 0s;
+        }
+
+        .shape:nth-child(2) {
+            width: 250px;
+            /* Boyut büyütüldü */
+            height: 250px;
+            bottom: -150px;
+            right: -150px;
+            animation-delay: 8s;
+            /* Gecikme artırıldı */
+        }
+
+        .shape:nth-child(3) {
+            width: 180px;
+            height: 180px;
+            top: 40%;
+            left: 75%;
+            animation-delay: 15s;
+        }
+
+        @keyframes float {
+
+            0%,
+            100% {
+                transform: translate(0, 0) rotate(0deg);
+            }
+
+            33% {
+                transform: translate(40px, -40px) rotate(100deg) scale(1.1);
+            }
+
+            66% {
+                transform: translate(-30px, 30px) rotate(220deg) scale(0.9);
+            }
+        }
+
+        .spinner {
+            border: 3px solid rgba(255, 255, 255, 0.3);
+            border-top-color: white;
+            border-radius: 50%;
+            width: 20px;
+            height: 20px;
+            animation: spin 0.8s linear infinite;
+        }
+
+        @keyframes spin {
+            to {
+                transform: rotate(360deg);
+            }
+        }
+
+        /* Yeni: input error class'ı */
+        .input-error {
+            border-color: #ef4444;
+            /* red-500 */
+        }
+    </style>
+</head>
+
+<body class="gradient-bg min-h-screen flex items-center justify-center p-4">
+    <div class="floating-shapes">
+        <div class="shape"></div>
+        <div class="shape"></div>
+        <div class="shape"></div>
+    </div>
+
+    <div class="login-container bg-white rounded-2xl shadow-2xl max-w-md w-full p-8 relative z-10">
+        <div class="text-center mb-8">
+            <div
+                class="w-20 h-20 gradient-bg rounded-2xl flex items-center justify-center text-white mx-auto mb-4 shadow-lg">
+                <i class="fas fa-tools text-3xl"></i>
+            </div>
+            <h1 class="text-3xl font-extrabold text-gray-900 mb-2">Kalıp Takip Sistemi</h1>
+            <p class="text-gray-600">Hoş geldiniz, lütfen giriş yapınız</p>
+        </div>
+
+        <div id="errorAlert" role="alert"
+            class="hidden mb-4 p-4 bg-red-50 border border-red-200 rounded-lg transition-all duration-300">
+            <div class="flex items-center gap-2">
+                <svg class="w-5 h-5 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                        d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                <p id="errorMessage" class="text-sm text-red-700 font-medium" aria-live="polite"></p>
+            </div>
+        </div>
+
+        <form id="loginForm" class="space-y-6">
+            <div class="input-group">
+                <label for="kullaniciAdi" class="block text-sm font-medium text-gray-700 mb-2">
+                    Kullanıcı Adı
+                </label>
+                <div class="relative">
+                    <input type="text" id="kullaniciAdi" name="kullaniciAdi" required autocomplete="username"
+                        class="w-full px-4 py-3 pl-12 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500 transition-all peer"
+                        placeholder="Kullanıcı adınızı girin" aria-invalid="false" />
+                    <div
+                        class="input-icon absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 transition-colors peer-focus:text-purple-600">
+                        <i class="fas fa-user"></i>
+                    </div>
+                </div>
+                <p id="kullaniciAdiError" class="text-sm text-red-500 mt-1 hidden" aria-live="assertive">Kullanıcı adı
+                    boş bırakılamaz.</p>
+            </div>
+
+            <div class="input-group">
+                <label for="sifre" class="block text-sm font-medium text-gray-700 mb-2">
+                    Şifre
+                </label>
+                <div class="relative">
+                    <input type="password" id="sifre" name="sifre" required autocomplete="current-password"
+                        class="w-full px-4 py-3 pl-12 pr-12 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500 transition-all peer"
+                        placeholder="Şifrenizi girin" aria-invalid="false" />
+                    <div
+                        class="input-icon absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 transition-colors peer-focus:text-purple-600">
+                        <i class="fas fa-lock"></i>
+                    </div>
+                    <button type="button" id="togglePassword"
+                        class="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 hover:text-purple-600 transition-colors p-1"
+                        aria-label="Şifreyi göster" aria-controls="sifre">
+                        <i class="fas fa-eye"></i>
+                    </button>
+                </div>
+                <p id="sifreError" class="text-sm text-red-500 mt-1 hidden" aria-live="assertive">Şifre boş bırakılamaz.
+                </p>
+            </div>
+
+            <div class="flex items-center justify-between">
+                <label for="rememberMe" class="flex items-center cursor-pointer">
+                    <input type="checkbox" id="rememberMe"
+                        class="w-4 h-4 text-purple-600 border-gray-300 rounded focus:ring-purple-500" />
+                    <span class="ml-2 text-sm text-gray-700">Beni hatırla</span>
+                </label>
+                <a href="/sifremi-unuttum.html"
+                    class="text-sm text-purple-600 hover:text-purple-700 font-medium hover:underline transition-colors">
+                    Şifremi unuttum
+                </a>
+            </div>
+
+            <button type="submit" id="loginButton"
+                class="w-full gradient-bg text-white py-3 rounded-lg font-semibold shadow-lg hover:shadow-xl transform hover:scale-[1.005] transition-all duration-200 flex items-center justify-center gap-2 focus:outline-none focus:ring-4 focus:ring-purple-300">
+                <span id="buttonText">Giriş Yap</span>
+                <div id="buttonSpinner" class="spinner hidden"></div>
+            </button>
+        </form>
+
+        <div class="mt-6 text-center">
+            <p class="text-xs text-gray-500">© 2024 Kalıp Takip Sistemi v2.1 | <a href="#"
+                    class="hover:underline">Gizlilik</a></p>
+        </div>
+    </div>
+
+    <script>
+        const API_URL = 'http://localhost:5000/api'; // API URL'si sabit tutuldu
+
+        const kullaniciAdiInput = document.getElementById('kullaniciAdi');
+        const sifreInput = document.getElementById('sifre');
+        const loginForm = document.getElementById('loginForm');
+        const togglePasswordButton = document.getElementById('togglePassword');
+        const errorAlert = document.getElementById('errorAlert');
+        const errorMessageDisplay = document.getElementById('errorMessage');
+
+        // Yeni: Hata alanlarını temizleme
+        function clearErrors() {
+            document.querySelectorAll('[aria-invalid="true"]').forEach(el => {
+                el.classList.remove('input-error');
+                el.setAttribute('aria-invalid', 'false');
+            });
+            document.querySelectorAll('.text-sm.text-red-500.mt-1').forEach(el => {
+                el.classList.add('hidden');
+            });
+        }
+
+        // Yeni: Tekil input validasyonu
+        function validateInput(inputElement, errorMessageElement) {
+            const isValid = inputElement.value.trim() !== '';
+
+            if (!isValid) {
+                inputElement.classList.add('input-error');
+                inputElement.setAttribute('aria-invalid', 'true');
+                errorMessageElement.textContent = `${inputElement.previousElementSibling.textContent.trim()} boş bırakılamaz.`;
+                errorMessageElement.classList.remove('hidden');
+            } else {
+                inputElement.classList.remove('input-error');
+                inputElement.setAttribute('aria-invalid', 'false');
+                errorMessageElement.classList.add('hidden');
+            }
+            return isValid;
+        }
+
+        // Şifre göster/gizle (Font Awesome ile güncellendi)
+        togglePasswordButton.addEventListener('click', function () {
+            const isPassword = sifreInput.type === 'password';
+            sifreInput.type = isPassword ? 'text' : 'password';
+
+            const icon = this.querySelector('i');
+            icon.className = isPassword ? 'fas fa-eye-slash' : 'fas fa-eye';
+            this.setAttribute('aria-label', isPassword ? 'Şifreyi gizle' : 'Şifreyi göster');
+            sifreInput.focus(); // Kullanıcı deneyimi için odak tekrar inputa verilmeli
+        });
+
+        // Hata gösterme fonksiyonu
+        function showError(message) {
+            errorMessageDisplay.textContent = message;
+            errorAlert.classList.remove('hidden');
+
+            // Hata mesajı odaklanılabilir hale getirildi (erişilebilirlik)
+            errorAlert.focus();
+
+            setTimeout(() => {
+                errorAlert.classList.add('hidden');
+            }, 5000);
+        }
+
+        // Loading durumu
+        function setLoading(isLoading) {
+            const button = document.getElementById('loginButton');
+            const buttonText = document.getElementById('buttonText');
+            const spinner = document.getElementById('buttonSpinner');
+
+            if (isLoading) {
+                button.disabled = true;
+                button.classList.add('opacity-75', 'cursor-not-allowed', 'shadow-none');
+                buttonText.textContent = 'Giriş yapılıyor...';
+                spinner.classList.remove('hidden');
+            } else {
+                button.disabled = false;
+                button.classList.remove('opacity-75', 'cursor-not-allowed', 'shadow-none');
+                buttonText.textContent = 'Giriş Yap';
+                spinner.classList.add('hidden');
+            }
+        }
+
+        // Beni hatırla fonksiyonu
+        function loadRememberedUser() {
+            const remembered = localStorage.getItem('rememberedUser');
+            if (remembered) {
+                kullaniciAdiInput.value = remembered;
+                document.getElementById('rememberMe').checked = true;
+            }
+        }
+
+        // Sayfa yüklendiğinde hatırlanan kullanıcıyı yükle
+        loadRememberedUser();
+
+        // Form submit
+        loginForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            clearErrors(); // Her submit öncesi hataları temizle
+
+            // Form validasyonunu çalıştır
+            const isKullaniciAdiValid = validateInput(kullaniciAdiInput, document.getElementById('kullaniciAdiError'));
+            const isSifreValid = validateInput(sifreInput, document.getElementById('sifreError'));
+
+            if (!isKullaniciAdiValid || !isSifreValid) {
+                showError('Lütfen gerekli alanları doldurun.');
+                return;
+            }
+
+            // Tüm alanlar dolu ise devam et
+            const kullaniciAdi = kullaniciAdiInput.value.trim();
+            const sifre = sifreInput.value;
+            const rememberMe = document.getElementById('rememberMe').checked;
+
+            setLoading(true);
+
+            try {
+                const response = await fetch(`${API_URL}/auth/login`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ kullaniciAdi, sifre })
+                });
+
+                // Yanıtın her zaman JSON olarak gelmesini sağlamak için
+                let data = {};
+                try {
+                    data = await response.json();
+                } catch (e) {
+                    // JSON olmayan bir yanıt gelirse (örneğin 500 Internal Server Error)
+                    throw new Error(`API bağlantı hatası: HTTP ${response.status}`);
+                }
+
+                if (!response.ok) {
+                    throw new Error(data.error || 'Kullanıcı adı veya şifre hatalı. Lütfen tekrar deneyin.');
+                }
+
+                // Başarılı giriş
+                localStorage.setItem('authToken', data.token);
+                localStorage.setItem('kullanici', JSON.stringify(data.kullanici));
+
+                if (rememberMe) {
+                    localStorage.setItem('rememberedUser', kullaniciAdi);
+                } else {
+                    localStorage.removeItem('rememberedUser');
+                }
+
+                // Yönlendirme
+                window.location.href = 'index.html';
+
+            } catch (error) {
+                console.error('Giriş hatası:', error);
+                showError(error.message || 'Giriş yapılırken beklenmeyen bir hata oluştu.');
+            } finally {
+                setLoading(false);
+            }
+        });
+
+        // Inputlardaki değişiklikleri izle ve hata stilini kaldır
+        [kullaniciAdiInput, sifreInput].forEach(input => {
+            input.addEventListener('input', () => {
+                if (input.classList.contains('input-error')) {
+                    const errorId = input.id + 'Error';
+                    const errorMessageElement = document.getElementById(errorId);
+
+                    if (input.value.trim() !== '') {
+                        input.classList.remove('input-error');
+                        input.setAttribute('aria-invalid', 'false');
+                        if (errorMessageElement) {
+                            errorMessageElement.classList.add('hidden');
+                        }
+                    }
+                }
+            });
+        });
+
+        // Enter tuşu ile form submit (mevcut)
+        // Bu kod, formun kendi submit olay dinleyicisi tarafından zaten ele alındığı için teknik olarak gereksizdir,
+        // ancak orijinal kodun bir parçası olarak bırakılabilir.
+    </script>
+</body>
+
+</html>

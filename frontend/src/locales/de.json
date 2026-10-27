@@ -1,0 +1,132 @@
+{
+    "app": {
+        "title": "Formenverfolgungssystem"
+    },
+    "login": {
+        "welcome": "Willkommen, bitte anmelden",
+        "username": "Benutzername",
+        "username_placeholder": "Benutzernamen eingeben",
+        "password": "Passwort",
+        "password_placeholder": "Passwort eingeben",
+        "remember_me": "Erinnere dich an mich",
+        "forgot_password": "Passwort vergessen?",
+        "submit": "Anmelden",
+        "submitting": "Anmelden...",
+        "demo_accounts": "Demo-Konten",
+        "user": "Benutzer"
+    },
+    "dashboard": {
+        "title": "Formenverfolgungs- und Planungssystem",
+        "welcome": "Willkommen",
+        "logout": "Abmelden",
+        "stats": {
+            "total_molds": "Gesamtformen",
+            "active_molds": "Aktive Formen",
+            "pending_revision": "Ausstehende Revision",
+            "total_cost": "Gesamtkosten",
+            "active_working": "aktiv arbeiten",
+            "in_production": "In Produktion",
+            "urgent_deadlines": "dringende Termine",
+            "tracking": "Terminverfolgung",
+            "revision_cost": "Revision"
+        },
+        "deadlines": {
+            "title": "Anstehende Termine",
+            "urgent": "Dringend",
+            "no_urgent": "Keine dringenden Termine",
+            "days_left": "Tage übrig"
+        },
+        "table": {
+            "search_placeholder": "Formen suchen...",
+            "filter_status": "Status filtern",
+            "filter_supplier": "Lieferant filtern",
+            "all": "Alle",
+            "code": "Code",
+            "name": "Formname",
+            "project": "Projekt",
+            "status": "Status",
+            "supplier": "Lieferant",
+            "cost": "Kosten",
+            "deadline": "Termin",
+            "actions": "Aktionen",
+            "empty": "Keine Einträge gefunden"
+        },
+        "buttons": {
+            "new_mold": "Neue Form",
+            "export": "Exportieren",
+            "save": "Speichern",
+            "cancel": "Abbrechen",
+            "delete": "Löschen",
+            "edit": "Bearbeiten",
+            "details": "Details",
+            "add_trial": "Versuch hinzufügen",
+            "add_revision": "Revision hinzufügen",
+            "add_maintenance": "Wartung hinzufügen"
+        },
+        "modals": {
+            "new_mold_title": "Neue Form hinzufügen",
+            "edit_mold_title": "Form bearbeiten",
+            "mold_details": "Formdetails",
+            "add_trial_title": "Neuer Versuchsdatensatz",
+            "add_revision_title": "Neuer Revisionsdatensatz",
+            "add_maintenance_title": "Neuer Wartungsdatensatz",
+            "form": {
+                "code": "Formcode",
+                "name": "Formname",
+                "project": "Projektcode",
+                "supplier": "Lieferant",
+                "cavity": "Kavitäten",
+                "material": "Material",
+                "deadline": "Termin",
+                "cost": "Kosten (TL)",
+                "payment": "Zahlungsstatus",
+                "notes": "Notizen",
+                "date": "Datum",
+                "raw_material": "Rohmaterial",
+                "color": "Farbe",
+                "quantity": "Menge",
+                "result": "Ergebnis",
+                "operator": "Bediener",
+                "company": "Firma",
+                "process": "Prozess",
+                "price": "Preis",
+                "description": "Beschreibung",
+                "responsible": "Verantwortlich",
+                "status": "Status"
+            },
+            "tabs": {
+                "info": "Allgemeine Info",
+                "trials": "Versuchsverlauf",
+                "revisions": "Revisionen",
+                "maintenances": "Wartung"
+            }
+        },
+        "chart": {
+            "title": "Statusverteilung",
+            "quick_stats": "Schnellstatistiken",
+            "total_trial": "Gesamtversuche",
+            "total_revision": "Gesamtrevisionen",
+            "avg_cavity": "Durchs. Kavitäten"
+        },
+        "activities": {
+            "title": "Letzte Aktivitäten",
+            "trial": "Versuch",
+            "revision": "Revision"
+        },
+        "status": {
+            "active": "Aktiv",
+            "aktif": "Aktiv",
+            "revision": "Revision",
+            "revizyon": "Revision",
+            "trial": "Versuch",
+            "deneme": "Versuch",
+            "passive": "Passiv",
+            "pasif": "Passiv"
+        }
+    },
+    "common": {
+        "loading": "Laden...",
+        "error": "Ein unbekannter Fehler ist aufgetreten",
+        "success": "Erfolgreich"
+    }
+}

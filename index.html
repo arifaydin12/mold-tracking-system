@@ -1,0 +1,2054 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Kalıp Takip ve Planlama Sistemi</title>
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap');
+        * { font-family: 'Inter', sans-serif; }
+        .fade-in { animation: fadeIn 0.4s ease-in; }
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(-10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        .slide-in { animation: slideIn 0.3s ease-out; }
+        @keyframes slideIn {
+            from { transform: translateX(-20px); opacity: 0; }
+            to { transform: translateX(0); opacity: 1; }
+        }
+        .modal-backdrop { backdrop-filter: blur(6px); }
+        .stat-card { 
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+        }
+        .stat-card:hover { 
+            transform: translateY(-6px); 
+            box-shadow: 0 12px 24px rgba(0, 0, 0, 0.15);
+        }
+        .modal-body::-webkit-scrollbar { width: 8px; }
+        .modal-body::-webkit-scrollbar-thumb { background-color: #cbd5e1; border-radius: 20px; }
+        .modal-body::-webkit-scrollbar-track { background-color: #f1f5f9; }
+        .table-row:hover { background-color: #f8fafc; }
+        .action-btn {
+            transition: all 0.2s ease;
+        }
+        .action-btn:hover {
+            transform: scale(1.1);
+        }
+        .badge-pulse {
+            animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+        }
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: .7; }
+        }
+        .gradient-bg {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        }
+    </style>
+</head>
+<body class="bg-gray-50">
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect, useMemo, useCallback } = React;
+        const API_URL = 'http://localhost:5000/api';
+
+        // --- Auth helpers ---
+        const getAuthToken = () => localStorage.getItem('authToken');
+        const getAuthHeaders = (extraHeaders = {}) => {
+            const token = getAuthToken();
+            const base = { 'Content-Type': 'application/json', ...extraHeaders };
+            return token ? { ...base, Authorization: `Bearer ${token}` } : base;
+        };
+
+        // Redirect to login if no token
+        const ensureAuthenticated = async () => {
+            const token = getAuthToken();
+            if (!token) {
+                window.location.href = 'login.html';
+                return false;
+            }
+
+            // Optionally verify token with server; if invalid -> redirect
+            try {
+                const resp = await fetch(`${API_URL}/auth/verify`, { headers: getAuthHeaders() });
+                if (!resp.ok) {
+                    localStorage.removeItem('authToken');
+                    localStorage.removeItem('kullanici');
+                    window.location.href = 'login.html';
+                    return false;
+                }
+                return true;
+            } catch (err) {
+                // network error -> show error later in load flow
+                return true; // allow load to try and surface network error
+            }
+        };
+
+        // Lucide Icons
+        const Icons = {
+            Search: () => <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>,
+            Plus: () => <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>,
+            Filter: () => <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z" /></svg>,
+            Download: () => <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>,
+            BarChart3: () => <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>,
+            Settings: () => <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>,
+            Bell: () => <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" /></svg>,
+            User: () => <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" /></svg>,
+            Package: () => <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" /></svg>,
+            CheckCircle: () => <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>,
+            XCircle: () => <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>,
+            AlertCircle: () => <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>,
+            Clock: () => <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>,
+            DollarSign: () => <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>,
+            Eye: () => <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>,
+            Edit: () => <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>,
+            Trash2: () => <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>,
+            TrendingUp: () => <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" /></svg>,
+            TrendingDown: () => <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 17h8m0 0V9m0 8l-8-8-4 4-6-6" /></svg>,
+            X: () => <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>,
+            ChevronDown: () => <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>,
+            ClipboardList: () => <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" /></svg>,
+            FileText: () => <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>,
+            Calendar: () => <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>,
+            Archive: () => <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4" /></svg>,
+            Tool: () => <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /></svg>,
+            RefreshCw: () => <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>,
+        };
+
+        const initialData = [
+            {
+                id: 1,
+                kod: 'KLP-2024-001',
+                ad: 'Şişe Kapağı Kalıbı',
+                proje: 'PROJ-045',
+                durum: 'aktif',
+                tedarikci: 'Anadolu Kalıp',
+                gozSayisi: 4,
+                malzeme: 'PP',
+                olusturmaTarihi: '2024-01-15',
+                termin: '2024-02-20',
+                maliyet: 45000,
+                odemeDurumu: 'Ödendi',
+                notlar: 'Yüksek kaliteli üretim, toleranslar mükemmel.',
+                denemeler: [
+                    { id: 1, tarih: '2024-02-18', hammadde: 'PP', renk: 'Mavi', adet: 500, sonuc: 'Onaylandı', operator: 'Ahmet Y.' },
+                    { id: 2, tarih: '2024-02-15', hammadde: 'PP', renk: 'Şeffaf', adet: 250, sonuc: 'Çapak sorunu - Revizyon gerekli', operator: 'Mehmet K.' }
+                ],
+                revizyonlar: [
+                    { id: 1, tarih: '2024-02-16', firma: 'Anadolu Kalıp', islem: 'Çapak alma - Göz 2 parlatma', fiyat: 2500, odemeDurumu: 'Ödendi', aciklama: 'Sorun giderildi' }
+                ],
+                bakimlar: [
+                    { id: 1, tarih: '2024-03-01', islem: 'Genel temizlik ve yağlama', sorumlu: 'Bakım Ekibi', durum: 'Tamamlandı' }
+                ]
+            },
+            {
+                id: 2,
+                kod: 'KLP-2024-002',
+                ad: 'Kapak Üst Parça',
+                proje: 'PROJ-048',
+                durum: 'revizyon',
+                tedarikci: 'Mega Kalıp San.',
+                gozSayisi: 8,
+                malzeme: 'ABS',
+                olusturmaTarihi: '2024-02-10',
+                termin: '2024-03-15',
+                maliyet: 68000,
+                odemeDurumu: '%50 Ödendi',
+                notlar: 'Acil proje, termin kritik.',
+                denemeler: [
+                    { id: 1, tarih: '2024-03-14', hammadde: 'ABS', renk: 'Siyah', adet: 1000, sonuc: 'Revizyon gerekli - Yolluk dar', operator: 'Ali M.' }
+                ],
+                revizyonlar: [
+                    { id: 1, tarih: '2024-03-16', firma: 'Mega Kalıp San.', islem: 'Yolluk büyütme işlemi', fiyat: 0, odemeDurumu: 'Garanti kapsamında', aciklama: 'Tedarikçi hatası' }
+                ],
+                bakimlar: []
+            },
+            {
+                id: 3,
+                kod: 'KLP-2024-003',
+                ad: 'Kap Gövde Kalıbı',
+                proje: 'PROJ-052',
+                durum: 'deneme',
+                tedarikci: 'Tekno Kalıp',
+                gozSayisi: 2,
+                malzeme: 'PET',
+                olusturmaTarihi: '2024-03-05',
+                termin: '2024-04-10',
+                maliyet: 32000,
+                odemeDurumu: 'Ödenmedi',
+                notlar: 'İlk deneme yakında yapılacak.',
+                denemeler: [],
+                revizyonlar: [],
+                bakimlar: []
+            },
+            {
+                id: 4,
+                kod: 'KLP-2023-087',
+                ad: 'Tutacak Kalıbı',
+                proje: 'PROJ-038',
+                durum: 'pasif',
+                tedarikci: 'Anadolu Kalıp',
+                gozSayisi: 6,
+                malzeme: 'PP',
+                olusturmaTarihi: '2023-11-20',
+                termin: '2024-01-05',
+                maliyet: 52000,
+                odemeDurumu: 'Ödendi',
+                notlar: 'Başarıyla tamamlandı, arşivlendi.',
+                denemeler: [
+                    { id: 1, tarih: '2024-01-03', hammadde: 'PP', renk: 'Beyaz', adet: 1000, sonuc: 'Onaylandı', operator: 'Fatma S.' }
+                ],
+                revizyonlar: [],
+                bakimlar: [
+                    { id: 1, tarih: '2024-01-10', islem: 'Final kontrolü', sorumlu: 'Kalite Kontrol', durum: 'Tamamlandı' }
+                ]
+            },
+            {
+                id: 5,
+                kod: 'KLP-2024-004',
+                ad: 'Menteşe Kalıbı',
+                proje: 'PROJ-055',
+                durum: 'aktif',
+                tedarikci: 'Prestij Kalıp',
+                gozSayisi: 12,
+                malzeme: 'PA66',
+                olusturmaTarihi: '2024-02-20',
+                termin: '2024-04-01',
+                maliyet: 85000,
+                odemeDurumu: 'Ödendi',
+                notlar: 'Yüksek göz sayılı kompleks kalıp.',
+                denemeler: [
+                    { id: 1, tarih: '2024-03-28', hammadde: 'PA66', renk: 'Siyah', adet: 2000, sonuc: 'Onaylandı - Mükemmel kalite', operator: 'Burak T.' }
+                ],
+                revizyonlar: [],
+                bakimlar: []
+            }
+        ];
+
+        const getTodayDate = () => new Date().toISOString().split('T')[0];
+
+        const KalipTakipApp = () => {
+            const [activeTab, setActiveTab] = useState('dashboard');
+            const [kaliplar, setKaliplar] = useState([]);
+            const [selectedKalip, setSelectedKalip] = useState(null);
+            const [modalOpen, setModalOpen] = useState(false);
+            const [newKalipModalOpen, setNewKalipModalOpen] = useState(false);
+            const [denemeModalOpen, setDenemeModalOpen] = useState(false);
+            const [revizyonModalOpen, setRevizyonModalOpen] = useState(false);
+            const [bakimModalOpen, setBakimModalOpen] = useState(false);
+            const [editKalipModalOpen, setEditKalipModalOpen] = useState(false);
+            const [settingsModalOpen, setSettingsModalOpen] = useState(false);
+            const [notificationsOpen, setNotificationsOpen] = useState(false);
+            const [userMenuOpen, setUserMenuOpen] = useState(false);
+            const [currentUser, setCurrentUser] = useState(() => {
+                try {
+                    return JSON.parse(localStorage.getItem('kullanici')) || null;
+                } catch (e) { return null; }
+            });
+            const [searchTerm, setSearchTerm] = useState('');
+            const [durumFilter, setDurumFilter] = useState('hepsi');
+            const [tedarikciFilter, setTedarikciFilter] = useState('hepsi');
+            const [notificationCount, setNotificationCount] = useState(0);
+
+            // ✅ BU KISMI EKLEYİN
+const [loading, setLoading] = useState(true);
+const [error, setError] = useState(null);
+
+useEffect(() => {
+    (async () => {
+        const ok = await ensureAuthenticated();
+        if (ok) {
+            await loadCurrentUser();
+            loadKaliplar();
+        }
+    })();
+}, []);
+
+const loadKaliplar = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+        const response = await fetch(`${API_URL}/kaliplar`, { headers: getAuthHeaders() });
+        if (response.status === 401) {
+            // invalid token or not authenticated
+            localStorage.removeItem('authToken');
+            localStorage.removeItem('kullanici');
+            window.location.href = 'login.html';
+            return;
+        }
+        if (!response.ok) throw new Error('Veri yüklenemedi');
+        const data = await response.json();
+        setKaliplar(data);
+        // update notification count based on data
+        const yaklasan = data.filter(k => {
+            const today = new Date();
+            const nextWeek = new Date(today.getTime() + 7 * 24 * 60 * 60 * 1000);
+            const termin = new Date(k.termin);
+            return k.durum !== 'pasif' && termin >= today && termin <= nextWeek;
+        }).length;
+        const revizyonBekleyen = data.filter(k => k.durum === 'revizyon').length;
+        setNotificationCount(yaklasan + revizyonBekleyen);
+    } catch (error) {
+        console.error('Veri yükleme hatası:', error);
+        setError('Veriler yüklenirken bir hata oluştu');
+        setKaliplar([]);
+    } finally {
+        setLoading(false);
+    }
+};
+
+// load current user from server (or localStorage) and refresh stored user
+const loadCurrentUser = async () => {
+    const token = getAuthToken();
+    if (!token) return;
+    try {
+        const resp = await fetch(`${API_URL}/auth/verify`, { headers: getAuthHeaders() });
+        if (resp.ok) {
+            const data = await resp.json();
+            setCurrentUser(data.kullanici || JSON.parse(localStorage.getItem('kullanici')));
+            localStorage.setItem('kullanici', JSON.stringify(data.kullanici));
+        } else {
+            const ls = localStorage.getItem('kullanici');
+            if (ls) setCurrentUser(JSON.parse(ls));
+        }
+    } catch (err) {
+        const ls = localStorage.getItem('kullanici');
+        if (ls) setCurrentUser(JSON.parse(ls));
+    }
+};
+
+
+            const filteredKaliplar = useMemo(() => {
+                return kaliplar.filter(k => {
+                    const searchMatch = k.ad.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                        k.kod.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                        k.tedarikci.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                        k.proje.toLowerCase().includes(searchTerm.toLowerCase());
+                    
+                    const durumMatch = durumFilter === 'hepsi' || k.durum === durumFilter;
+                    const tedarikciMatch = tedarikciFilter === 'hepsi' || k.tedarikci === tedarikciFilter;
+                    
+                    return searchMatch && durumMatch && tedarikciMatch;
+                }).sort((a, b) => new Date(b.olusturmaTarihi) - new Date(a.olusturmaTarihi));
+            }, [kaliplar, searchTerm, durumFilter, tedarikciFilter]);
+
+            const allDenemeler = useMemo(() => {
+                return kaliplar.flatMap(kalip => 
+                    kalip.denemeler.map(deneme => ({
+                        ...deneme,
+                        kalipId: kalip.id,
+                        kalipKod: kalip.kod,
+                        kalipAd: kalip.ad,
+                        proje: kalip.proje
+                    }))
+                ).sort((a, b) => new Date(b.tarih) - new Date(a.tarih));
+            }, [kaliplar]);
+
+            const allRevizyonlar = useMemo(() => {
+                return kaliplar.flatMap(kalip => 
+                    kalip.revizyonlar.map(revizyon => ({
+                        ...revizyon,
+                        kalipId: kalip.id,
+                        kalipKod: kalip.kod,
+                        kalipAd: kalip.ad,
+                        proje: kalip.proje
+                    }))
+                ).sort((a, b) => new Date(b.tarih) - new Date(a.tarih));
+            }, [kaliplar]);
+
+            const allBakimlar = useMemo(() => {
+                return kaliplar.flatMap(kalip => 
+                    kalip.bakimlar.map(bakim => ({
+                        ...bakim,
+                        kalipId: kalip.id,
+                        kalipKod: kalip.kod,
+                        kalipAd: kalip.ad
+                    }))
+                ).sort((a, b) => new Date(b.tarih) - new Date(a.tarih));
+            }, [kaliplar]);
+
+            const uniqueTedarikci = useMemo(() => {
+                return [...new Set(kaliplar.map(k => k.tedarikci))];
+            }, [kaliplar]);
+
+            // ✅ BU KISMI EKLEYİN
+const handleAddNewKalip = async (yeniKalip) => {
+    try {
+        const response = await fetch(`${API_URL}/kaliplar`, {
+            method: 'POST',
+            headers: getAuthHeaders(),
+            body: JSON.stringify({
+                ...yeniKalip,
+                maliyet: parseFloat(yeniKalip.maliyet) || 0,
+                gozSayisi: parseInt(yeniKalip.gozSayisi) || 1,
+                olusturmaTarihi: getTodayDate()
+            })
+        });
+        
+        if (response.status === 401) {
+            localStorage.removeItem('authToken');
+            localStorage.removeItem('kullanici');
+            window.location.href = 'login.html';
+            return;
+        }
+
+        if (!response.ok) throw new Error('Kalıp eklenemedi');
+        
+        await loadKaliplar();
+        setNewKalipModalOpen(false);
+        alert('✅ Kalıp başarıyla eklendi!');
+    } catch (error) {
+        console.error('Kalıp ekleme hatası:', error);
+        alert('❌ Hata: ' + error.message);
+    }
+};
+
+           // ✅ BU KISMI EKLEYİN
+const handleUpdateKalip = async (updatedData) => {
+    try {
+        const response = await fetch(`${API_URL}/kaliplar/${selectedKalip.id}`, {
+            method: 'PUT',
+            headers: getAuthHeaders(),
+            body: JSON.stringify({
+                ...updatedData,
+                maliyet: parseFloat(updatedData.maliyet) || 0,
+                gozSayisi: parseInt(updatedData.gozSayisi) || 1
+            })
+        });
+
+        if (response.status === 401) {
+            localStorage.removeItem('authToken');
+            localStorage.removeItem('kullanici');
+            window.location.href = 'login.html';
+            return;
+        }
+
+        if (!response.ok) throw new Error('Güncelleme başarısız');
+
+        await loadKaliplar();
+        setEditKalipModalOpen(false);
+        alert('✅ Kalıp güncellendi!');
+    } catch (error) {
+        console.error('Güncelleme hatası:', error);
+        alert('❌ Hata: ' + error.message);
+    }
+};
+
+            // ✅ BU KISMI EKLEYİN
+const handleAddDeneme = async (denemeData) => {
+    try {
+        const response = await fetch(`${API_URL}/deneme`, {
+            method: 'POST',
+            headers: getAuthHeaders(),
+            body: JSON.stringify({
+                ...denemeData,
+                kalipId: selectedKalip.id,
+                adet: parseInt(denemeData.adet) || 0
+            })
+        });
+
+        if (response.status === 401) {
+            localStorage.removeItem('authToken');
+            localStorage.removeItem('kullanici');
+            window.location.href = 'login.html';
+            return;
+        }
+
+        if (!response.ok) throw new Error('Deneme eklenemedi');
+
+        await loadKaliplar();
+        const updatedKalip = kaliplar.find(k => k.id === selectedKalip.id);
+        setSelectedKalip(updatedKalip);
+        setDenemeModalOpen(false);
+        alert('✅ Deneme kaydı eklendi!');
+    } catch (error) {
+        console.error('Hata:', error);
+        alert('❌ Hata: ' + error.message);
+    }
+};
+
+            // ✅ BU KISMI EKLEYİN
+const handleAddRevizyon = async (revizyonData) => {
+    try {
+        const response = await fetch(`${API_URL}/revizyon`, {
+            method: 'POST',
+            headers: getAuthHeaders(),
+            body: JSON.stringify({
+                ...revizyonData,
+                kalipId: selectedKalip.id,
+                fiyat: parseFloat(revizyonData.fiyat) || 0
+            })
+        });
+
+        if (response.status === 401) {
+            localStorage.removeItem('authToken');
+            localStorage.removeItem('kullanici');
+            window.location.href = 'login.html';
+            return;
+        }
+
+        if (!response.ok) throw new Error('Revizyon eklenemedi');
+
+        await loadKaliplar();
+        const updatedKalip = kaliplar.find(k => k.id === selectedKalip.id);
+        setSelectedKalip(updatedKalip);
+        setRevizyonModalOpen(false);
+        alert('✅ Revizyon kaydı eklendi!');
+    } catch (error) {
+        console.error('Hata:', error);
+        alert('❌ Hata: ' + error.message);
+    }
+};
+
+            // ✅ BU KISMI EKLEYİN
+const handleAddBakim = async (bakimData) => {
+    try {
+        const response = await fetch(`${API_URL}/bakim`, {
+            method: 'POST',
+            headers: getAuthHeaders(),
+            body: JSON.stringify({
+                ...bakimData,
+                kalipId: selectedKalip.id
+            })
+        });
+
+        if (response.status === 401) {
+            localStorage.removeItem('authToken');
+            localStorage.removeItem('kullanici');
+            window.location.href = 'login.html';
+            return;
+        }
+
+        if (!response.ok) throw new Error('Bakım eklenemedi');
+
+        await loadKaliplar();
+        const updatedKalip = kaliplar.find(k => k.id === selectedKalip.id);
+        setSelectedKalip(updatedKalip);
+        setBakimModalOpen(false);
+        alert('✅ Bakım kaydı eklendi!');
+    } catch (error) {
+        console.error('Hata:', error);
+        alert('❌ Hata: ' + error.message);
+    }
+};
+
+            const handleDeleteKalip = async (id) => {
+    if (!window.confirm("Bu kalıbı silmek istediğinizden emin misiniz? Tüm kayıtlar silinecektir.")) {
+        return;
+    }
+    
+    try {
+        const response = await fetch(`${API_URL}/kaliplar/${id}`, {
+            method: 'DELETE',
+            headers: getAuthHeaders()
+        });
+
+        if (response.status === 401) {
+            localStorage.removeItem('authToken');
+            localStorage.removeItem('kullanici');
+            window.location.href = 'login.html';
+            return;
+        }
+
+        if (!response.ok) throw new Error('Silme başarısız');
+
+        await loadKaliplar();
+        alert('✅ Kalıp silindi!');
+    } catch (error) {
+        console.error('Silme hatası:', error);
+        alert('❌ Hata: ' + error.message);
+    }
+};
+
+            const exportToCSV = useCallback(() => {
+                const headers = ['Kalıp Kodu', 'Kalıp Adı', 'Proje', 'Durum', 'Tedarikçi', 'Göz Sayısı', 'Malzeme', 'Termin', 'Maliyet', 'Ödeme Durumu'];
+                const rows = filteredKaliplar.map(k => [
+                    k.kod, k.ad, k.proje, k.durum, k.tedarikci, k.gozSayisi, k.malzeme, k.termin, k.maliyet, k.odemeDurumu
+                ]);
+                
+                const csvContent = [headers, ...rows].map(row => row.join(',')).join('\n');
+                const blob = new Blob(['\ufeff' + csvContent], { type: 'text/csv;charset=utf-8;' });
+                const link = document.createElement('a');
+                link.href = URL.createObjectURL(blob);
+                link.download = `kalip_listesi_${getTodayDate()}.csv`;
+                link.click();
+            }, [filteredKaliplar]);
+
+            const getDurumBadge = (durum) => {
+                const badges = {
+                    aktif: { bg: 'bg-green-100', text: 'text-green-700', Icon: Icons.CheckCircle, label: 'Aktif' },
+                    revizyon: { bg: 'bg-orange-100', text: 'text-orange-700', Icon: Icons.AlertCircle, label: 'Revizyon' },
+                    deneme: { bg: 'bg-blue-100', text: 'text-blue-700', Icon: Icons.Clock, label: 'Deneme' },
+                    pasif: { bg: 'bg-gray-100', text: 'text-gray-700', Icon: Icons.XCircle, label: 'Pasif' }
+                };
+                const { bg, text, Icon, label } = badges[durum] || badges.pasif;
+                return (
+                    <span className={`${bg} ${text} px-3 py-1 rounded-full text-xs font-medium flex items-center gap-1 w-fit`}>
+                        <Icon />
+                        {label}
+                    </span>
+                );
+            };
+
+            const StatCard = ({ title, value, change, Icon, color, subtitle }) => (
+                <div className="stat-card bg-white rounded-xl p-6">
+                    <div className="flex items-center justify-between">
+                        <div className="flex-1">
+                            <p className="text-sm text-gray-600 mb-1">{title}</p>
+                            <h3 className="text-3xl font-bold text-gray-900 mb-1">{value}</h3>
+                            {subtitle && <p className="text-xs text-gray-500">{subtitle}</p>}
+                            {change !== undefined && (
+                                <div className={`flex items-center gap-1 mt-2 text-sm ${change >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                                    {change >= 0 ? <Icons.TrendingUp /> : <Icons.TrendingDown />}
+                                    <span>{Math.abs(change)}% bu ay</span>
+                                </div>
+                            )}
+                        </div>
+                        <div className={`${color} p-4 rounded-xl`}>
+                            <Icon />
+                        </div>
+                    </div>
+                </div>
+            );
+
+            const Dashboard = () => {
+                const stats = useMemo(() => {
+                    const toplamMaliyet = kaliplar.reduce((sum, k) => sum + k.maliyet, 0);
+                    const aktifKaliplar = kaliplar.filter(k => k.durum === 'aktif').length;
+                    const revizyonBekleyen = kaliplar.filter(k => k.durum === 'revizyon').length;
+                    const toplamDeneme = allDenemeler.length;
+                    const toplamRevizyon = allRevizyonlar.length;
+                    const revizyonMaliyeti = allRevizyonlar.reduce((sum, r) => sum + r.fiyat, 0);
+                    
+                    return {
+                        toplamMaliyet,
+                        aktifKaliplar,
+                        revizyonBekleyen,
+                        toplamDeneme,
+                        toplamRevizyon,
+                        revizyonMaliyeti
+                    };
+                }, []);
+
+                const yaklasanTerminler = useMemo(() => {
+                    const today = new Date();
+                    const nextWeek = new Date(today.getTime() + 7 * 24 * 60 * 60 * 1000);
+                    return kaliplar.filter(k => {
+                        const termin = new Date(k.termin);
+                        return k.durum !== 'pasif' && termin >= today && termin <= nextWeek;
+                    }).sort((a, b) => new Date(a.termin) - new Date(b.termin));
+                }, []);
+
+                return (
+                    <div className="space-y-6 fade-in">
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                            <StatCard 
+                                title="Toplam Kalıp" 
+                                value={kaliplar.length} 
+                                change={12}
+                                Icon={Icons.Package} 
+                                color="bg-blue-500 text-white"
+                                subtitle={`${stats.aktifKaliplar} aktif çalışıyor`}
+                            />
+                            <StatCard 
+                                title="Aktif Kalıp" 
+                                value={stats.aktifKaliplar} 
+                                change={8}
+                                Icon={Icons.CheckCircle} 
+                                color="bg-green-500 text-white"
+                                subtitle="Üretimde kullanılıyor"
+                            />
+                            <StatCard 
+                                title="Revizyon Bekleyen" 
+                                value={stats.revizyonBekleyen} 
+                                change={-5}
+                                Icon={Icons.AlertCircle} 
+                                color="bg-orange-500 text-white"
+                                subtitle={yaklasanTerminler.length > 0 ? `${yaklasanTerminler.length} yaklaşan termin` : 'Termin takibi yapılıyor'}
+                            />
+                            <StatCard 
+                                title="Toplam Maliyet" 
+                                value={`₺${(stats.toplamMaliyet / 1000).toFixed(0)}K`} 
+                                change={15}
+                                Icon={Icons.DollarSign} 
+                                color="bg-purple-500 text-white"
+                                subtitle={`Revizyon: ₺${(stats.revizyonMaliyeti / 1000).toFixed(0)}K`}
+                            />
+                        </div>
+
+                        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                            <div className="lg:col-span-2 bg-white rounded-xl shadow-sm p-6">
+                                <div className="flex items-center justify-between mb-4">
+                                    <h3 className="text-lg font-semibold flex items-center gap-2">
+                                        <Icons.Calendar />
+                                        Yaklaşan Terminler
+                                    </h3>
+                                    {yaklasanTerminler.length > 0 && (
+                                        <span className="badge-pulse bg-red-100 text-red-700 px-3 py-1 rounded-full text-xs font-medium">
+                                            {yaklasanTerminler.length} Acil
+                                        </span>
+                                    )}
+                                </div>
+                                <div className="space-y-3">
+                                    {yaklasanTerminler.length === 0 ? (
+                                        <div className="text-center py-8 text-gray-500">
+                                            <Icons.CheckCircle className="w-12 h-12 mx-auto mb-2 text-green-500" />
+                                            <p>Yaklaşan acil termin bulunmuyor</p>
+                                        </div>
+                                    ) : (
+                                        yaklasanTerminler.slice(0, 5).map(kalip => {
+                                            const daysLeft = Math.ceil((new Date(kalip.termin) - new Date()) / (1000 * 60 * 60 * 24));
+                                            return (
+                                                <div key={kalip.id} className="flex items-center justify-between p-4 bg-gradient-to-r from-orange-50 to-red-50 rounded-lg hover:shadow-md transition-all cursor-pointer"
+                                                     onClick={() => { setSelectedKalip(kalip); setModalOpen(true); }}>
+                                                    <div className="flex-1">
+                                                        <p className="font-medium text-sm">{kalip.ad}</p>
+                                                        <p className="text-xs text-gray-600">{kalip.kod} • {kalip.proje}</p>
+                                                        <p className="text-xs text-gray-500 mt-1">{kalip.tedarikci}</p>
+                                                    </div>
+                                                    <div className="text-right">
+                                                        <p className="text-sm font-bold text-red-600">{kalip.termin}</p>
+                                                        <p className={`text-xs font-medium ${daysLeft <= 3 ? 'text-red-600' : 'text-orange-600'}`}>
+                                                            {daysLeft} gün kaldı
+                                                        </p>
+                                                    </div>
+                                                </div>
+                                            );
+                                        })
+                                    )}
+                                </div>
+                            </div>
+
+                            <div className="bg-white rounded-xl shadow-sm p-6">
+                                <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
+                                    <Icons.BarChart3 />
+                                    Durum Dağılımı
+                                </h3>
+                                <div className="space-y-4">
+                                    {['aktif', 'revizyon', 'deneme', 'pasif'].map(durum => {
+                                        const count = kaliplar.filter(k => k.durum === durum).length;
+                                        const percentage = kaliplar.length > 0 ? ((count / kaliplar.length) * 100).toFixed(0) : 0;
+                                        const colors = {
+                                            aktif: 'bg-green-500',
+                                            revizyon: 'bg-orange-500',
+                                            deneme: 'bg-blue-500',
+                                            pasif: 'bg-gray-400'
+                                        };
+                                        return (
+                                            <div key={durum} className="space-y-2">
+                                                <div className="flex justify-between text-sm">
+                                                    <span className="capitalize font-medium text-gray-700">{durum}</span>
+                                                    <span className="text-gray-600 font-semibold">{count} ({percentage}%)</span>
+                                                </div>
+                                                <div className="w-full bg-gray-200 rounded-full h-3 overflow-hidden">
+                                                    <div 
+                                                        className={`h-3 rounded-full ${colors[durum]} transition-all duration-500`}
+                                                        style={{ width: `${percentage}%` }}
+                                                    />
+                                                </div>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+
+                                <div className="mt-6 pt-6 border-t border-gray-200">
+                                    <h4 className="text-sm font-semibold mb-3 text-gray-700">Hızlı İstatistikler</h4>
+                                    <div className="space-y-2 text-sm">
+                                        <div className="flex justify-between">
+                                            <span className="text-gray-600">Toplam Deneme Baskı</span>
+                                            <span className="font-semibold">{stats.toplamDeneme}</span>
+                                        </div>
+                                        <div className="flex justify-between">
+                                            <span className="text-gray-600">Toplam Revizyon</span>
+                                            <span className="font-semibold">{stats.toplamRevizyon}</span>
+                                        </div>
+                                        <div className="flex justify-between">
+                                            <span className="text-gray-600">Ortalama Göz Sayısı</span>
+                                            <span className="font-semibold">
+                                                {kaliplar.length > 0 ? (kaliplar.reduce((sum, k) => sum + k.gozSayisi, 0) / kaliplar.length).toFixed(1) : 0}
+                                            </span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div className="bg-white rounded-xl shadow-sm p-6">
+                            <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
+                                <Icons.FileText />
+                                Son Aktiviteler
+                            </h3>
+                            <div className="space-y-3">
+                                {[...allDenemeler.slice(0, 3), ...allRevizyonlar.slice(0, 2)].sort((a, b) => new Date(b.tarih) - new Date(a.tarih)).slice(0, 5).map((item, index) => (
+                                    <div key={index} className="flex items-start gap-3 p-3 bg-gray-50 rounded-lg slide-in">
+                                        <div className={`p-2 rounded-lg ${item.sonuc ? 'bg-blue-100 text-blue-600' : 'bg-orange-100 text-orange-600'}`}>
+                                            {item.sonuc ? <Icons.CheckCircle /> : <Icons.Tool />}
+                                        </div>
+                                        <div className="flex-1">
+                                            <p className="text-sm font-medium">{item.kalipAd}</p>
+                                            <p className="text-xs text-gray-600">{item.sonuc ? `Deneme: ${item.sonuc}` : `Revizyon: ${item.islem}`}</p>
+                                            <p className="text-xs text-gray-500 mt-1">{item.tarih}</p>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    </div>
+                );
+            };
+
+            const KalipListesi = () => (
+                <div className="bg-white rounded-xl shadow-sm fade-in">
+                    <div className="p-6 border-b border-gray-200">
+                        <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+                            <div className="flex-1 max-w-md">
+                                <div className="relative">
+                                    <div className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">
+                                        <Icons.Search />
+                                    </div>
+                                    <input
+                                        type="text"
+                                        placeholder="Kalıp ara (Ad, Kod, Tedarikçi, Proje...)"
+                                        className="w-full pl-10 pr-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                        value={searchTerm}
+                                        onChange={(e) => setSearchTerm(e.target.value)}
+                                    />
+                                </div>
+                            </div>
+                            <div className="flex flex-wrap gap-2">
+                                <select
+                                    value={durumFilter}
+                                    onChange={(e) => setDurumFilter(e.target.value)}
+                                    className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 text-sm"
+                                >
+                                    <option value="hepsi">Tüm Durumlar</option>
+                                    <option value="aktif">Aktif</option>
+                                    <option value="revizyon">Revizyon</option>
+                                    <option value="deneme">Deneme</option>
+                                    <option value="pasif">Pasif</option>
+                                </select>
+                                <select
+                                    value={tedarikciFilter}
+                                    onChange={(e) => setTedarikciFilter(e.target.value)}
+                                    className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 text-sm"
+                                >
+                                    <option value="hepsi">Tüm Tedarikçiler</option>
+                                    {uniqueTedarikci.map(t => (
+                                        <option key={t} value={t}>{t}</option>
+                                    ))}
+                                </select>
+                                <button 
+                                    onClick={exportToCSV}
+                                    className="flex items-center gap-2 px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors text-sm font-medium"
+                                >
+                                    <Icons.Download />
+                                    Dışa Aktar
+                                </button>
+                                <button 
+                                    className="flex items-center gap-2 px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors text-sm font-medium shadow-md hover:shadow-lg"
+                                    onClick={() => setNewKalipModalOpen(true)}
+                                >
+                                    <Icons.Plus />
+                                    Yeni Kalıp
+                                </button>
+                            </div>
+                        </div>
+                        {(searchTerm || durumFilter !== 'hepsi' || tedarikciFilter !== 'hepsi') && (
+                            <div className="mt-3 text-sm text-gray-600">
+                                <span className="font-medium">{filteredKaliplar.length}</span> sonuç bulundu
+                            </div>
+                        )}
+                    </div>
+
+                    <div className="overflow-x-auto">
+                        <table className="w-full">
+                            <thead className="bg-gray-50">
+                                <tr>
+                                    <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Kalıp Bilgisi</th>
+                                    <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Proje</th>
+                                    <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Durum</th>
+                                    <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Tedarikçi</th>
+                                    <th className="px-6 py-4 text-center text-xs font-semibold text-gray-600 uppercase tracking-wider">Göz</th>
+                                    <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Termin</th>
+                                    <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Maliyet</th>
+                                    <th className="px-6 py-4 text-center text-xs font-semibold text-gray-600 uppercase tracking-wider">İşlemler</th>
+                                </tr>
+                            </thead>
+                            <tbody className="bg-white divide-y divide-gray-200">
+                                {filteredKaliplar.length === 0 ? (
+                                    <tr>
+                                        <td colSpan="8" className="px-6 py-12 text-center">
+                                            <div className="flex flex-col items-center justify-center text-gray-500">
+                                                <Icons.Package className="w-16 h-16 mb-3 text-gray-300" />
+                                                <p className="text-lg font-medium">Kalıp bulunamadı</p>
+                                                <p className="text-sm">Arama kriterlerinizi değiştirin veya yeni kalıp ekleyin</p>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                ) : (
+                                    filteredKaliplar.map((kalip, index) => (
+                                        <tr key={kalip.id} className="table-row transition-colors" style={{ animationDelay: `${index * 50}ms` }}>
+                                            <td className="px-6 py-4">
+                                                <div>
+                                                    <p className="text-sm font-semibold text-gray-900">{kalip.ad}</p>
+                                                    <p className="text-xs text-gray-500">{kalip.kod}</p>
+                                                </div>
+                                            </td>
+                                            <td className="px-6 py-4">
+                                                <span className="text-sm text-gray-900 font-medium">{kalip.proje}</span>
+                                            </td>
+                                            <td className="px-6 py-4">{getDurumBadge(kalip.durum)}</td>
+                                            <td className="px-6 py-4 text-sm text-gray-900">{kalip.tedarikci}</td>
+                                            <td className="px-6 py-4 text-sm text-gray-900 text-center font-semibold">{kalip.gozSayisi}</td>
+                                            <td className="px-6 py-4">
+                                                <div className="text-sm">
+                                                    <p className="font-medium text-gray-900">{kalip.termin}</p>
+                                                    <p className="text-xs text-gray-500">{kalip.malzeme}</p>
+                                                </div>
+                                            </td>
+                                            <td className="px-6 py-4">
+                                                <div className="text-sm">
+                                                    <p className="font-bold text-gray-900">₺{kalip.maliyet.toLocaleString()}</p>
+                                                    <p className="text-xs text-gray-500">{kalip.odemeDurumu}</p>
+                                                </div>
+                                            </td>
+                                            <td className="px-6 py-4">
+                                                <div className="flex justify-center gap-2">
+                                                    <button 
+                                                        onClick={() => { setSelectedKalip(kalip); setModalOpen(true); }}
+                                                        className="action-btn p-2 text-blue-600 hover:bg-blue-50 rounded-lg"
+                                                        title="Detay Görüntüle"
+                                                    >
+                                                        <Icons.Eye />
+                                                    </button>
+                                                    <button 
+                                                        onClick={() => { setSelectedKalip(kalip); setEditKalipModalOpen(true); }}
+                                                        className="action-btn p-2 text-green-600 hover:bg-green-50 rounded-lg" 
+                                                        title="Düzenle"
+                                                    >
+                                                        <Icons.Edit />
+                                                    </button>
+                                                    <button 
+                                                        className="action-btn p-2 text-red-600 hover:bg-red-50 rounded-lg" 
+                                                        title="Sil"
+                                                        onClick={() => handleDeleteKalip(kalip.id)}
+                                                    >
+                                                        <Icons.Trash2 />
+                                                    </button>
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    ))
+                                )}
+                            </tbody>
+                        </table>
+                    </div>
+                    
+                    {filteredKaliplar.length > 0 && (
+                        <div className="p-4 border-t border-gray-200 bg-gray-50 text-sm text-gray-600 text-center">
+                            Toplam <span className="font-semibold">{filteredKaliplar.length}</span> kalıp gösteriliyor
+                        </div>
+                    )}
+                </div>
+            );
+
+            const DenemeListesi = () => (
+                <div className="bg-white rounded-xl shadow-sm fade-in">
+                    <div className="p-6 border-b border-gray-200">
+                        <h2 className="text-xl font-bold flex items-center gap-2">
+                            <Icons.CheckCircle className="text-blue-600" /> Deneme Baskı Yönetimi
+                        </h2>
+                        <p className="text-sm text-gray-600 mt-1">Tüm kalıplara ait deneme baskı geçmişi ve sonuçları</p>
+                    </div>
+                    <div className="overflow-x-auto">
+                        <table className="w-full">
+                            <thead className="bg-gray-50">
+                                <tr>
+                                    <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Kalıp Bilgisi</th>
+                                    <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Tarih</th>
+                                    <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Hammadde</th>
+                                    <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Renk</th>
+                                    <th className="px-6 py-4 text-right text-xs font-semibold text-gray-600 uppercase tracking-wider">Adet</th>
+                                    <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Operatör</th>
+                                    <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Sonuç</th>
+                                </tr>
+                            </thead>
+                            <tbody className="bg-white divide-y divide-gray-200">
+                                {allDenemeler.length === 0 ? (
+                                    <tr>
+                                        <td colSpan="7" className="px-6 py-12 text-center text-gray-500">
+                                            <Icons.CheckCircle className="w-16 h-16 mx-auto mb-3 text-gray-300" />
+                                            <p className="text-lg font-medium">Henüz deneme baskı kaydı bulunmuyor</p>
+                                        </td>
+                                    </tr>
+                                ) : (
+                                    allDenemeler.map((deneme, index) => (
+                                        <tr key={`${deneme.kalipId}-${deneme.id}`} className="table-row" style={{ animationDelay: `${index * 50}ms` }}>
+                                            <td className="px-6 py-4">
+                                                <p className="text-sm font-semibold text-gray-900">{deneme.kalipAd}</p>
+                                                <p className="text-xs text-gray-500">{deneme.kalipKod} • {deneme.proje}</p>
+                                            </td>
+                                            <td className="px-6 py-4 text-sm text-gray-900">{deneme.tarih}</td>
+                                            <td className="px-6 py-4 text-sm text-gray-900">{deneme.hammadde}</td>
+                                            <td className="px-6 py-4 text-sm text-gray-900">{deneme.renk}</td>
+                                            <td className="px-6 py-4 text-sm text-gray-900 text-right font-semibold">{deneme.adet.toLocaleString()}</td>
+                                            <td className="px-6 py-4 text-sm text-gray-900">{deneme.operator || '-'}</td>
+                                            <td className="px-6 py-4">
+                                                <span className={`text-sm ${deneme.sonuc.includes('Onay') ? 'text-green-700 font-semibold' : 'text-orange-700'}`}>
+                                                    {deneme.sonuc}
+                                                </span>
+                                            </td>
+                                        </tr>
+                                    ))
+                                )}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            );
+
+            const RevizyonListesi = () => (
+                <div className="bg-white rounded-xl shadow-sm fade-in">
+                    <div className="p-6 border-b border-gray-200">
+                        <h2 className="text-xl font-bold flex items-center gap-2">
+                            <Icons.Tool className="text-orange-600" /> Revizyon Takibi
+                        </h2>
+                        <p className="text-sm text-gray-600 mt-1">Tüm kalıplara ait revizyon geçmişi, maliyetler ve ödeme durumları</p>
+                    </div>
+                    <div className="overflow-x-auto">
+                        <table className="w-full">
+                            <thead className="bg-gray-50">
+                                <tr>
+                                    <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Kalıp Bilgisi</th>
+                                    <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Tarih</th>
+                                    <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Sorumlu Firma</th>
+                                    <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Yapılan İşlem</th>
+                                    <th className="px-6 py-4 text-right text-xs font-semibold text-gray-600 uppercase tracking-wider">Fiyat</th>
+                                    <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Ödeme Durumu</th>
+                                </tr>
+                            </thead>
+                            <tbody className="bg-white divide-y divide-gray-200">
+                                {allRevizyonlar.length === 0 ? (
+                                    <tr>
+                                        <td colSpan="6" className="px-6 py-12 text-center text-gray-500">
+                                            <Icons.Tool className="w-16 h-16 mx-auto mb-3 text-gray-300" />
+                                            <p className="text-lg font-medium">Henüz revizyon kaydı bulunmuyor</p>
+                                        </td>
+                                    </tr>
+                                ) : (
+                                    allRevizyonlar.map((revizyon, index) => (
+                                        <tr key={`${revizyon.kalipId}-${revizyon.id}`} className="table-row" style={{ animationDelay: `${index * 50}ms` }}>
+                                            <td className="px-6 py-4">
+                                                <p className="text-sm font-semibold text-gray-900">{revizyon.kalipAd}</p>
+                                                <p className="text-xs text-gray-500">{revizyon.kalipKod} • {revizyon.proje}</p>
+                                            </td>
+                                            <td className="px-6 py-4 text-sm text-gray-900">{revizyon.tarih}</td>
+                                            <td className="px-6 py-4 text-sm text-gray-900">{revizyon.firma}</td>
+                                            <td className="px-6 py-4 text-sm text-gray-900 max-w-xs">{revizyon.islem}</td>
+                                            <td className="px-6 py-4 text-sm text-right">
+                                                <span className={`font-bold ${revizyon.fiyat > 0 ? 'text-red-600' : 'text-green-600'}`}>
+                                                    {revizyon.fiyat > 0 ? `₺${revizyon.fiyat.toLocaleString()}` : 'Garantili'}
+                                                </span>
+                                            </td>
+                                            <td className="px-6 py-4">
+                                                <span className={`px-3 py-1 rounded-full text-xs font-medium ${
+                                                    revizyon.odemeDurumu === 'Ödendi' ? 'bg-green-100 text-green-700' :
+                                                    revizyon.odemeDurumu === 'Garanti kapsamında' ? 'bg-blue-100 text-blue-700' :
+                                                    'bg-orange-100 text-orange-700'
+                                                }`}>
+                                                    {revizyon.odemeDurumu}
+                                                </span>
+                                            </td>
+                                        </tr>
+                                    ))
+                                )}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            );
+
+            const BakimListesi = () => (
+                <div className="bg-white rounded-xl shadow-sm fade-in">
+                    <div className="p-6 border-b border-gray-200">
+                        <h2 className="text-xl font-bold flex items-center gap-2">
+                            <Icons.Settings className="text-purple-600" /> Bakım Kayıtları
+                        </h2>
+                        <p className="text-sm text-gray-600 mt-1">Kalıp bakım geçmişi ve planlanan bakımlar</p>
+                    </div>
+                    <div className="overflow-x-auto">
+                        <table className="w-full">
+                            <thead className="bg-gray-50">
+                                <tr>
+                                    <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Kalıp Bilgisi</th>
+                                    <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Tarih</th>
+                                    <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Yapılan İşlem</th>
+                                    <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Sorumlu</th>
+                                    <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Durum</th>
+                                </tr>
+                            </thead>
+                            <tbody className="bg-white divide-y divide-gray-200">
+                                {allBakimlar.length === 0 ? (
+                                    <tr>
+                                        <td colSpan="5" className="px-6 py-12 text-center text-gray-500">
+                                            <Icons.Settings className="w-16 h-16 mx-auto mb-3 text-gray-300" />
+                                            <p className="text-lg font-medium">Henüz bakım kaydı bulunmuyor</p>
+                                        </td>
+                                    </tr>
+                                ) : (
+                                    allBakimlar.map((bakim, index) => (
+                                        <tr key={`${bakim.kalipId}-${bakim.id}`} className="table-row" style={{ animationDelay: `${index * 50}ms` }}>
+                                            <td className="px-6 py-4">
+                                                <p className="text-sm font-semibold text-gray-900">{bakim.kalipAd}</p>
+                                                <p className="text-xs text-gray-500">{bakim.kalipKod}</p>
+                                            </td>
+                                            <td className="px-6 py-4 text-sm text-gray-900">{bakim.tarih}</td>
+                                            <td className="px-6 py-4 text-sm text-gray-900">{bakim.islem}</td>
+                                            <td className="px-6 py-4 text-sm text-gray-900">{bakim.sorumlu}</td>
+                                            <td className="px-6 py-4">
+                                                <span className={`px-3 py-1 rounded-full text-xs font-medium ${
+                                                    bakim.durum === 'Tamamlandı' ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'
+                                                }`}>
+                                                    {bakim.durum}
+                                                </span>
+                                            </td>
+                                        </tr>
+                                    ))
+                                )}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            );
+
+            const RaporlarPage = () => {
+                const toplamMaliyet = kaliplar.reduce((sum, k) => sum + k.maliyet, 0);
+                const revizyonMaliyeti = allRevizyonlar.reduce((sum, r) => sum + r.fiyat, 0);
+                const tedarikciIstatistik = useMemo(() => {
+                    const stats = {};
+                    kaliplar.forEach(k => {
+                        if (!stats[k.tedarikci]) {
+                            stats[k.tedarikci] = { count: 0, maliyet: 0 };
+                        }
+                        stats[k.tedarikci].count++;
+                        stats[k.tedarikci].maliyet += k.maliyet;
+                    });
+                    return Object.entries(stats).sort((a, b) => b[1].count - a[1].count);
+                }, []);
+
+                const malzemeIstatistik = useMemo(() => {
+                    const stats = {};
+                    kaliplar.forEach(k => {
+                        stats[k.malzeme] = (stats[k.malzeme] || 0) + 1;
+                    });
+                    return Object.entries(stats).sort((a, b) => b[1] - a[1]);
+                }, []);
+
+                return (
+                    <div className="space-y-6 fade-in">
+                        <div className="bg-white rounded-xl shadow-sm p-6">
+                            <h2 className="text-2xl font-bold mb-6 flex items-center gap-2">
+                                <Icons.BarChart3 className="text-blue-600" />
+                                Raporlama ve Analiz
+                            </h2>
+
+                            <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+                                <div className="bg-gradient-to-br from-blue-50 to-blue-100 p-6 rounded-xl">
+                                    <div className="flex items-center justify-between mb-2">
+                                        <h3 className="text-sm font-medium text-blue-900">Toplam Yatırım</h3>
+                                        <Icons.DollarSign className="text-blue-600" />
+                                    </div>
+                                    <p className="text-3xl font-bold text-blue-900">₺{(toplamMaliyet / 1000).toFixed(0)}K</p>
+                                    <p className="text-xs text-blue-700 mt-1">{kaliplar.length} kalıp</p>
+                                </div>
+
+                                <div className="bg-gradient-to-br from-orange-50 to-orange-100 p-6 rounded-xl">
+                                    <div className="flex items-center justify-between mb-2">
+                                        <h3 className="text-sm font-medium text-orange-900">Revizyon Maliyeti</h3>
+                                        <Icons.Tool className="text-orange-600" />
+                                    </div>
+                                    <p className="text-3xl font-bold text-orange-900">₺{(revizyonMaliyeti / 1000).toFixed(0)}K</p>
+                                    <p className="text-xs text-orange-700 mt-1">{allRevizyonlar.length} revizyon</p>
+                                </div>
+
+                                <div className="bg-gradient-to-br from-green-50 to-green-100 p-6 rounded-xl">
+                                    <div className="flex items-center justify-between mb-2">
+                                        <h3 className="text-sm font-medium text-green-900">Başarı Oranı</h3>
+                                        <Icons.CheckCircle className="text-green-600" />
+                                    </div>
+                                    <p className="text-3xl font-bold text-green-900">
+                                        {allDenemeler.length > 0 ? 
+                                            Math.round((allDenemeler.filter(d => d.sonuc.includes('Onay')).length / allDenemeler.length) * 100) 
+                                            : 0}%
+                                    </p>
+                                    <p className="text-xs text-green-700 mt-1">{allDenemeler.length} deneme</p>
+                                </div>
+                            </div>
+
+                            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                                <div className="border border-gray-200 rounded-xl p-6">
+                                    <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
+                                        <Icons.Package className="text-blue-600" />
+                                        Tedarikçi Analizi
+                                    </h3>
+                                    <div className="space-y-3">
+                                        {tedarikciIstatistik.map(([tedarikci, data]) => (
+                                            <div key={tedarikci} className="p-4 bg-gray-50 rounded-lg">
+                                                <div className="flex justify-between items-center mb-2">
+                                                    <span className="font-medium text-gray-900">{tedarikci}</span>
+                                                    <span className="text-sm font-semibold text-blue-600">{data.count} kalıp</span>
+                                                </div>
+                                                <div className="flex justify-between text-sm text-gray-600">
+                                                    <span>Toplam Maliyet</span>
+                                                    <span className="font-bold">₺{(data.maliyet / 1000).toFixed(0)}K</span>
+                                                </div>
+                                                <div className="mt-2 w-full bg-gray-200 rounded-full h-2">
+                                                    <div 
+                                                        className="bg-blue-500 h-2 rounded-full"
+                                                        style={{ width: `${(data.count / kaliplar.length) * 100}%` }}
+                                                    />
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+
+                                <div className="border border-gray-200 rounded-xl p-6">
+                                    <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
+                                        <Icons.FileText className="text-purple-600" />
+                                        Malzeme Dağılımı
+                                    </h3>
+                                    <div className="space-y-3">
+                                        {malzemeIstatistik.map(([malzeme, count]) => {
+                                            const percentage = ((count / kaliplar.length) * 100).toFixed(0);
+                                            return (
+                                                <div key={malzeme} className="p-4 bg-gray-50 rounded-lg">
+                                                    <div className="flex justify-between items-center mb-2">
+                                                        <span className="font-medium text-gray-900">{malzeme}</span>
+                                                        <span className="text-sm font-semibold text-purple-600">{count} kalıp ({percentage}%)</span>
+                                                    </div>
+                                                    <div className="w-full bg-gray-200 rounded-full h-2">
+                                                        <div 
+                                                            className="bg-purple-500 h-2 rounded-full"
+                                                            style={{ width: `${percentage}%` }}
+                                                        />
+                                                    </div>
+                                                </div>
+                                            );
+                                        })}
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div className="mt-6 p-6 border border-gray-200 rounded-xl">
+                                <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
+                                    <Icons.Download className="text-green-600" />
+                                    Rapor Dışa Aktarma
+                                </h3>
+                                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                    <button 
+                                        onClick={exportToCSV}
+                                        className="flex items-center justify-center gap-2 px-6 py-3 bg-green-500 text-white rounded-lg hover:bg-green-600 transition-colors font-medium"
+                                    >
+                                        <Icons.Download />
+                                        Kalıp Listesi (CSV)
+                                    </button>
+                                    <button className="flex items-center justify-center gap-2 px-6 py-3 border-2 border-blue-500 text-blue-600 rounded-lg hover:bg-blue-50 transition-colors font-medium">
+                                        <Icons.FileText />
+                                        Detaylı Rapor (PDF)
+                                    </button>
+                                    <button className="flex items-center justify-center gap-2 px-6 py-3 border-2 border-purple-500 text-purple-600 rounded-lg hover:bg-purple-50 transition-colors font-medium">
+                                        <Icons.BarChart3 />
+                                        Grafik Raporu
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                );
+            };
+
+            const ArsivPage = () => {
+                const pasifKaliplar = kaliplar.filter(k => k.durum === 'pasif');
+                
+                return (
+                    <div className="bg-white rounded-xl shadow-sm fade-in">
+                        <div className="p-6 border-b border-gray-200">
+                            <h2 className="text-xl font-bold flex items-center gap-2">
+                                <Icons.Archive className="text-gray-600" /> Arşiv ve Geçmiş Kayıtlar
+                            </h2>
+                            <p className="text-sm text-gray-600 mt-1">Tamamlanmış ve pasif durumdaki kalıplar</p>
+                        </div>
+                        <div className="p-6">
+                            {pasifKaliplar.length === 0 ? (
+                                <div className="text-center py-12 text-gray-500">
+                                    <Icons.Archive className="w-16 h-16 mx-auto mb-3 text-gray-300" />
+                                    <p className="text-lg font-medium">Arşivde kalıp bulunmuyor</p>
+                                </div>
+                            ) : (
+                                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                                    {pasifKaliplar.map(kalip => (
+                                        <div 
+                                            key={kalip.id} 
+                                            className="p-5 border-2 border-gray-200 rounded-xl hover:border-blue-300 hover:shadow-lg transition-all cursor-pointer"
+                                            onClick={() => { setSelectedKalip(kalip); setModalOpen(true); }}
+                                        >
+                                            <div className="flex items-start justify-between mb-3">
+                                                <div>
+                                                    <h3 className="font-semibold text-gray-900">{kalip.ad}</h3>
+                                                    <p className="text-xs text-gray-500">{kalip.kod}</p>
+                                                </div>
+                                                {getDurumBadge(kalip.durum)}
+                                            </div>
+                                            <div className="space-y-2 text-sm">
+                                                <div className="flex justify-between">
+                                                    <span className="text-gray-600">Proje:</span>
+                                                    <span className="font-medium">{kalip.proje}</span>
+                                                </div>
+                                                <div className="flex justify-between">
+                                                    <span className="text-gray-600">Tedarikçi:</span>
+                                                    <span className="font-medium">{kalip.tedarikci}</span>
+                                                </div>
+                                                <div className="flex justify-between">
+                                                    <span className="text-gray-600">Maliyet:</span>
+                                                    <span className="font-bold text-gray-900">₺{kalip.maliyet.toLocaleString()}</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                );
+            };
+
+            const Modal = ({ show, onClose, title, children, size = 'max-w-2xl' }) => {
+                if (!show) return null;
+                return (
+                    <div className="fixed inset-0 bg-black bg-opacity-50 modal-backdrop flex items-center justify-center z-50 p-4" onClick={onClose}>
+                        <div 
+                            className={`bg-white rounded-xl shadow-2xl ${size} w-full max-h-[90vh] flex flex-col fade-in`}
+                            onClick={(e) => e.stopPropagation()}
+                        >
+                            <div className="p-6 border-b border-gray-200 flex items-center justify-between sticky top-0 bg-white rounded-t-xl">
+                                <h2 className="text-2xl font-bold text-gray-900">{title}</h2>
+                                <button onClick={onClose} className="p-2 hover:bg-gray-100 rounded-lg transition-colors text-gray-500">
+                                    <Icons.X />
+                                </button>
+                            </div>
+                            <div className="p-6 space-y-4 overflow-y-auto modal-body">
+                                {children}
+                            </div>
+                        </div>
+                    </div>
+                );
+            };
+
+            const Input = ({ label, ...props }) => (
+                <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">{label}</label>
+                    <input {...props} className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent" />
+                </div>
+            );
+
+            const Select = ({ label, children, ...props }) => (
+                <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">{label}</label>
+                    <select {...props} className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white">
+                        {children}
+                    </select>
+                </div>
+            );
+
+            const TextArea = ({ label, ...props }) => (
+                <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">{label}</label>
+                    <textarea {...props} rows="3" className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent" />
+                </div>
+            );
+
+            const FormButton = ({ children, variant = 'primary', ...props }) => {
+                const variants = {
+                    primary: 'bg-blue-500 hover:bg-blue-600 text-white',
+                    secondary: 'bg-gray-500 hover:bg-gray-600 text-white'
+                };
+                return (
+                    <button {...props} className={`w-full px-4 py-2.5 rounded-lg transition-colors font-medium ${variants[variant]}`}>
+                        {children}
+                    </button>
+                );
+            };
+
+            const YeniKalipModal = () => {
+                const handleSubmit = (e) => {
+                    e.preventDefault();
+                    const formData = new FormData(e.target);
+                    const yeniKalip = Object.fromEntries(formData.entries());
+                    handleAddNewKalip(yeniKalip);
+                };
+                return (
+                    <Modal show={newKalipModalOpen} onClose={() => setNewKalipModalOpen(false)} title="Yeni Kalıp Talebi Oluştur" size="max-w-3xl">
+                        <form onSubmit={handleSubmit} className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <Input label="Kalıp Adı *" name="ad" type="text" required placeholder="Ör: Şişe Kapağı Kalıbı" />
+                            <Input label="Kalıp Kodu *" name="kod" type="text" required placeholder="Ör: KLP-2024-005" />
+                            <Input label="Proje Kodu *" name="proje" type="text" required placeholder="Ör: PROJ-055" />
+                            <Input label="Tedarikçi *" name="tedarikci" type="text" required placeholder="Ör: Anadolu Kalıp" />
+                            <Input label="Enjeksiyon Malzemesi" name="malzeme" type="text" placeholder="Ör: PP, ABS, PET" />
+                            <Input label="Göz Sayısı" name="gozSayisi" type="number" defaultValue="1" min="1" />
+                            <Input label="Termin Tarihi *" name="termin" type="date" required defaultValue={getTodayDate()} />
+                            <Input label="Fiyat (₺) *" name="maliyet" type="number" required step="0.01" min="0" placeholder="0.00" />
+                            <Select label="Durum" name="durum" defaultValue="deneme">
+                                <option value="deneme">Deneme</option>
+                                <option value="aktif">Aktif</option>
+                                <option value="revizyon">Revizyon</option>
+                                <option value="pasif">Pasif</option>
+                            </Select>
+                            <Select label="Ödeme Durumu" name="odemeDurumu" defaultValue="Ödenmedi">
+                                <option value="Ödenmedi">Ödenmedi</option>
+                                <option value="%50 Ödendi">%50 Ödendi</option>
+                                <option value="Ödendi">Ödendi</option>
+                            </Select>
+                            <div className="md:col-span-2">
+                                <TextArea label="Notlar / Açıklama" name="notlar" placeholder="Kalıp hakkında ek bilgiler..." />
+                            </div>
+                            <div className="md:col-span-2">
+                                <FormButton type="submit">Yeni Kalıbı Kaydet</FormButton>
+                            </div>
+                        </form>
+                    </Modal>
+                );
+            };
+
+            const EditKalipModal = () => {
+                const handleSubmit = (e) => {
+                    e.preventDefault();
+                    const formData = new FormData(e.target);
+                    const updatedData = Object.fromEntries(formData.entries());
+                    updatedData.maliyet = parseFloat(updatedData.maliyet) || 0;
+                    updatedData.gozSayisi = parseInt(updatedData.gozSayisi) || 1;
+                    handleUpdateKalip(updatedData);
+                };
+
+                if (!selectedKalip) return null;
+
+                return (
+                    <Modal show={editKalipModalOpen} onClose={() => setEditKalipModalOpen(false)} title="Kalıp Bilgilerini Düzenle" size="max-w-3xl">
+                        <form onSubmit={handleSubmit} className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <Input label="Kalıp Adı" name="ad" type="text" required defaultValue={selectedKalip.ad} />
+                            <Input label="Kalıp Kodu" name="kod" type="text" required defaultValue={selectedKalip.kod} />
+                            <Input label="Proje Kodu" name="proje" type="text" required defaultValue={selectedKalip.proje} />
+                            <Input label="Tedarikçi" name="tedarikci" type="text" required defaultValue={selectedKalip.tedarikci} />
+                            <Input label="Enjeksiyon Malzemesi" name="malzeme" type="text" defaultValue={selectedKalip.malzeme} />
+                            <Input label="Göz Sayısı" name="gozSayisi" type="number" defaultValue={selectedKalip.gozSayisi} min="1" />
+                            <Input label="Termin Tarihi" name="termin" type="date" required defaultValue={selectedKalip.termin} />
+                            <Input label="Fiyat (₺)" name="maliyet" type="number" required step="0.01" defaultValue={selectedKalip.maliyet} />
+                            <Select label="Durum" name="durum" defaultValue={selectedKalip.durum}>
+                                <option value="deneme">Deneme</option>
+                                <option value="aktif">Aktif</option>
+                                <option value="revizyon">Revizyon</option>
+                                <option value="pasif">Pasif</option>
+                            </Select>
+                            <Select label="Ödeme Durumu" name="odemeDurumu" defaultValue={selectedKalip.odemeDurumu}>
+                                <option value="Ödenmedi">Ödenmedi</option>
+                                <option value="%50 Ödendi">%50 Ödendi</option>
+                                <option value="Ödendi">Ödendi</option>
+                            </Select>
+                            <div className="md:col-span-2">
+                                <TextArea label="Notlar / Açıklama" name="notlar" defaultValue={selectedKalip.notlar || ''} />
+                            </div>
+                            <div className="md:col-span-2 grid grid-cols-2 gap-4">
+                                <button 
+                                    type="button" 
+                                    onClick={() => setEditKalipModalOpen(false)}
+                                    className="px-4 py-2.5 border-2 border-gray-300 rounded-lg hover:bg-gray-50 transition-colors font-medium"
+                                >
+                                    İptal
+                                </button>
+                                <FormButton type="submit">Değişiklikleri Kaydet</FormButton>
+                            </div>
+                        </form>
+                    </Modal>
+                );
+            };
+
+            const DenemeBaskiModal = () => {
+                const handleSubmit = (e) => {
+                    e.preventDefault();
+                    const formData = new FormData(e.target);
+                    const denemeData = Object.fromEntries(formData.entries());
+                    handleAddDeneme(denemeData);
+                };
+                return (
+                    <Modal show={denemeModalOpen} onClose={() => setDenemeModalOpen(false)} title={`Deneme Baskı Ekle: ${selectedKalip?.ad}`}>
+                        <form onSubmit={handleSubmit} className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <Input label="Tarih *" name="tarih" type="date" required defaultValue={getTodayDate()} />
+                            <Input label="Hammadde" name="hammadde" type="text" defaultValue={selectedKalip?.malzeme} placeholder="Ör: PP, ABS" />
+                            <Input label="Renk" name="renk" type="text" placeholder="Ör: Siyah, Beyaz" />
+                            <Input label="Baskı Adedi" name="adet" type="number" min="0" placeholder="0" />
+                            <Input label="Operatör" name="operator" type="text" placeholder="Operatör adı" />
+                            <div className="md:col-span-2">
+                                <TextArea label="Sonuç / Açıklama *" name="sonuc" required placeholder="Deneme baskı sonucu ve detaylar..." />
+                            </div>
+                            <div className="md:col-span-2">
+                                <FormButton type="submit">Deneme Baskı Kaydını Ekle</FormButton>
+                            </div>
+                        </form>
+                    </Modal>
+                );
+            };
+
+            const RevizyonModal = () => {
+                const handleSubmit = (e) => {
+                    e.preventDefault();
+                    const formData = new FormData(e.target);
+                    const revizyonData = Object.fromEntries(formData.entries());
+                    handleAddRevizyon(revizyonData);
+                };
+                return (
+                    <Modal show={revizyonModalOpen} onClose={() => setRevizyonModalOpen(false)} title={`Revizyon Ekle: ${selectedKalip?.ad}`}>
+                        <form onSubmit={handleSubmit} className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <Input label="Tarih *" name="tarih" type="date" required defaultValue={getTodayDate()} />
+                            <Input label="Sorumlu Firma *" name="firma" type="text" required defaultValue={selectedKalip?.tedarikci} />
+                            <Input label="Fiyat (₺)" name="fiyat" type="number" step="0.01" defaultValue="0" min="0" placeholder="0.00" />
+                            <Select label="Ödeme Durumu" name="odemeDurumu" defaultValue="Ödenmedi">
+                                <option value="Ödenmedi">Ödenmedi</option>
+                                <option value="Ödendi">Ödendi</option>
+                                <option value="Garanti kapsamında">Garanti kapsamında</option>
+                            </Select>
+                            <div className="md:col-span-2">
+                                <TextArea label="Yapılan İşlem / Açıklama *" name="islem" required placeholder="Revizyon detayları ve yapılan işlemler..." />
+                            </div>
+                            <div className="md:col-span-2">
+                                <TextArea label="Ek Açıklama" name="aciklama" placeholder="Varsa ek notlar..." />
+                            </div>
+                            <div className="md:col-span-2">
+                                <FormButton type="submit">Revizyon Kaydını Ekle</FormButton>
+                            </div>
+                        </form>
+                    </Modal>
+                );
+            };
+
+            const BakimModal = () => {
+                const handleSubmit = (e) => {
+                    e.preventDefault();
+                    const formData = new FormData(e.target);
+                    const bakimData = Object.fromEntries(formData.entries());
+                    handleAddBakim(bakimData);
+                };
+                return (
+                    <Modal show={bakimModalOpen} onClose={() => setBakimModalOpen(false)} title={`Bakım Kaydı Ekle: ${selectedKalip?.ad}`}>
+                        <form onSubmit={handleSubmit} className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <Input label="Tarih *" name="tarih" type="date" required defaultValue={getTodayDate()} />
+                            <Input label="Sorumlu Kişi/Ekip *" name="sorumlu" type="text" required placeholder="Ör: Bakım Ekibi" />
+                            <Select label="Durum" name="durum" defaultValue="Tamamlandı">
+                                <option value="Tamamlandı">Tamamlandı</option>
+                                <option value="Devam Ediyor">Devam Ediyor</option>
+                                <option value="Planlandı">Planlandı</option>
+                            </Select>
+                            <div className="md:col-span-2">
+                                <TextArea label="Yapılan İşlem *" name="islem" required placeholder="Bakım detayları ve yapılan işlemler..." />
+                            </div>
+                            <div className="md:col-span-2">
+                                <FormButton type="submit">Bakım Kaydını Ekle</FormButton>
+                            </div>
+                        </form>
+                    </Modal>
+                );
+            };
+
+            const KalipDetayModal = () => {
+                if (!selectedKalip || !modalOpen) return null;
+
+                const [detayTab, setDetayTab] = useState('bilgi');
+
+                return (
+                    <div className="fixed inset-0 bg-black bg-opacity-50 modal-backdrop flex items-center justify-center z-50 p-4" onClick={() => setModalOpen(false)}>
+                        <div className="bg-white rounded-xl shadow-2xl max-w-5xl w-full max-h-[90vh] flex flex-col fade-in" onClick={(e) => e.stopPropagation()}>
+                            <div className="p-6 border-b border-gray-200 flex items-center justify-between sticky top-0 bg-white rounded-t-xl z-10">
+                                <div>
+                                    <h2 className="text-2xl font-bold text-gray-900">{selectedKalip.ad}</h2>
+                                    <p className="text-sm text-gray-500">{selectedKalip.kod} • {selectedKalip.proje}</p>
+                                </div>
+                                <button onClick={() => setModalOpen(false)} className="p-2 hover:bg-gray-100 rounded-lg transition-colors text-gray-500">
+                                    <Icons.X />
+                                </button>
+                            </div>
+
+                            <div className="flex-1 overflow-y-auto modal-body">
+                                <div className="p-6 grid grid-cols-2 md:grid-cols-4 gap-4 bg-gradient-to-br from-gray-50 to-blue-50 border-b border-gray-200">
+                                    <InfoBox label="Proje" value={selectedKalip.proje} />
+                                    <InfoBox label="Tedarikçi" value={selectedKalip.tedarikci} />
+                                    <InfoBox label="Durum">{getDurumBadge(selectedKalip.durum)}</InfoBox>
+                                    <InfoBox label="Göz Sayısı" value={selectedKalip.gozSayisi} />
+                                    <InfoBox label="Malzeme" value={selectedKalip.malzeme} />
+                                    <InfoBox label="Termin" value={selectedKalip.termin} />
+                                    <InfoBox label="Maliyet" value={`₺${selectedKalip.maliyet.toLocaleString()}`} highlight="text-blue-700" />
+                                    <InfoBox label="Ödeme" value={selectedKalip.odemeDurumu} highlight={selectedKalip.odemeDurumu === 'Ödendi' ? 'text-green-700' : 'text-orange-700'} />
+                                </div>
+
+                                {selectedKalip.notlar && (
+                                    <div className="p-6 bg-yellow-50 border-b border-gray-200">
+                                        <h3 className="text-sm font-semibold text-gray-700 mb-2 flex items-center gap-2">
+                                            <Icons.FileText className="w-4 h-4" />
+                                            Notlar
+                                        </h3>
+                                        <p className="text-sm text-gray-800">{selectedKalip.notlar}</p>
+                                    </div>
+                                )}
+
+                                <div className="p-6">
+                                    <div className="flex border-b border-gray-200 mb-6">
+                                        <TabButton 
+                                            label="Deneme Baskıları" 
+                                            Icon={Icons.CheckCircle} 
+                                            count={selectedKalip.denemeler.length} 
+                                            active={detayTab === 'deneme'} 
+                                            onClick={() => setDetayTab('deneme')} 
+                                        />
+                                        <TabButton 
+                                            label="Revizyonlar" 
+                                            Icon={Icons.AlertCircle} 
+                                            count={selectedKalip.revizyonlar.length} 
+                                            active={detayTab === 'revizyon'} 
+                                            onClick={() => setDetayTab('revizyon')} 
+                                        />
+                                        <TabButton 
+                                            label="Bakımlar" 
+                                            Icon={Icons.Settings} 
+                                            count={selectedKalip.bakimlar.length} 
+                                            active={detayTab === 'bakim'} 
+                                            onClick={() => setDetayTab('bakim')} 
+                                        />
+                                    </div>
+
+                                    {detayTab === 'deneme' && (
+                                        <div className="space-y-3 fade-in">
+                                            {selectedKalip.denemeler.length === 0 ? (
+                                                <div className="text-center py-8 text-gray-500">
+                                                    <Icons.CheckCircle className="w-12 h-12 mx-auto mb-2 text-gray-300" />
+                                                    <p>Henüz deneme baskı kaydı bulunmuyor</p>
+                                                </div>
+                                            ) : (
+                                                selectedKalip.denemeler.map(d => (
+                                                    <div key={d.id} className="p-4 bg-gradient-to-r from-blue-50 to-blue-100 rounded-lg border-l-4 border-blue-500">
+                                                        <div className="flex justify-between items-start mb-2">
+                                                            <div>
+                                                                <span className="font-semibold text-sm text-gray-900">{d.tarih}</span>
+                                                                {d.operator && <span className="text-xs text-gray-600 ml-2">• {d.operator}</span>}
+                                                            </div>
+                                                            <span className="text-xs font-medium text-blue-700 bg-blue-200 px-2 py-1 rounded">
+                                                                {d.adet} adet
+                                                            </span>
+                                                        </div>
+                                                        <div className="text-xs text-gray-600 mb-2">
+                                                            <span className="font-medium">{d.hammadde}</span> • <span>{d.renk}</span>
+                                                        </div>
+                                                        <p className={`text-sm font-medium ${d.sonuc.includes('Onay') ? 'text-green-700' : 'text-orange-700'}`}>
+                                                            {d.sonuc}
+                                                        </p>
+                                                    </div>
+                                                ))
+                                            )}
+                                        </div>
+                                    )}
+
+                                    {detayTab === 'revizyon' && (
+                                        <div className="space-y-3 fade-in">
+                                            {selectedKalip.revizyonlar.length === 0 ? (
+                                                <div className="text-center py-8 text-gray-500">
+                                                    <Icons.Tool className="w-12 h-12 mx-auto mb-2 text-gray-300" />
+                                                    <p>Henüz revizyon kaydı bulunmuyor</p>
+                                                </div>
+                                            ) : (
+                                                selectedKalip.revizyonlar.map(r => (
+                                                    <div key={r.id} className="p-4 bg-gradient-to-r from-orange-50 to-orange-100 rounded-lg border-l-4 border-orange-500">
+                                                        <div className="flex justify-between items-start mb-2">
+                                                            <div>
+                                                                <span className="font-semibold text-sm text-gray-900">{r.tarih}</span>
+                                                                <span className="text-xs text-gray-600 ml-2">• {r.firma}</span>
+                                                            </div>
+                                                            <span className={`text-sm font-bold ${r.fiyat > 0 ? 'text-red-600' : 'text-green-600'}`}>
+                                                                {r.fiyat > 0 ? `₺${r.fiyat.toLocaleString()}` : 'Garantili'}
+                                                            </span>
+                                                        </div>
+                                                        <p className="text-sm text-gray-800 mb-2">{r.islem}</p>
+                                                        {r.aciklama && <p className="text-xs text-gray-600 mb-2">{r.aciklama}</p>}
+                                                        <span className={`text-xs font-medium px-2 py-1 rounded ${
+                                                            r.odemeDurumu === 'Ödendi' ? 'bg-green-200 text-green-800' :
+                                                            r.odemeDurumu === 'Garanti kapsamında' ? 'bg-blue-200 text-blue-800' :
+                                                            'bg-orange-200 text-orange-800'
+                                                        }`}>
+                                                            {r.odemeDurumu}
+                                                        </span>
+                                                    </div>
+                                                ))
+                                            )}
+                                        </div>
+                                    )}
+
+                                    {detayTab === 'bakim' && (
+                                        <div className="space-y-3 fade-in">
+                                            {selectedKalip.bakimlar.length === 0 ? (
+                                                <div className="text-center py-8 text-gray-500">
+                                                    <Icons.Settings className="w-12 h-12 mx-auto mb-2 text-gray-300" />
+                                                    <p>Henüz bakım kaydı bulunmuyor</p>
+                                                </div>
+                                            ) : (
+                                                selectedKalip.bakimlar.map(b => (
+                                                    <div key={b.id} className="p-4 bg-gradient-to-r from-purple-50 to-purple-100 rounded-lg border-l-4 border-purple-500">
+                                                        <div className="flex justify-between items-start mb-2">
+                                                            <div>
+                                                                <span className="font-semibold text-sm text-gray-900">{b.tarih}</span>
+                                                                <span className="text-xs text-gray-600 ml-2">• {b.sorumlu}</span>
+                                                            </div>
+                                                            <span className={`text-xs font-medium px-2 py-1 rounded ${
+                                                                b.durum === 'Tamamlandı' ? 'bg-green-200 text-green-800' : 'bg-yellow-200 text-yellow-800'
+                                                            }`}>
+                                                                {b.durum}
+                                                            </span>
+                                                        </div>
+                                                        <p className="text-sm text-gray-800">{b.islem}</p>
+                                                    </div>
+                                                ))
+                                            )}
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+
+                            <div className="p-6 border-t border-gray-200 bg-gray-50 rounded-b-xl flex flex-wrap gap-3">
+                                <button 
+                                    className="flex-1 min-w-[140px] px-4 py-2.5 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors text-sm font-medium shadow-md hover:shadow-lg"
+                                    onClick={() => setDenemeModalOpen(true)}
+                                >
+                                    <div className="flex items-center justify-center gap-2">
+                                        <Icons.Plus />
+                                        Deneme Baskı
+                                    </div>
+                                </button>
+                                <button 
+                                    className="flex-1 min-w-[140px] px-4 py-2.5 bg-orange-500 text-white rounded-lg hover:bg-orange-600 transition-colors text-sm font-medium shadow-md hover:shadow-lg"
+                                    onClick={() => setRevizyonModalOpen(true)}
+                                >
+                                    <div className="flex items-center justify-center gap-2">
+                                        <Icons.Plus />
+                                        Revizyon
+                                    </div>
+                                </button>
+                                <button 
+                                    className="flex-1 min-w-[140px] px-4 py-2.5 bg-purple-500 text-white rounded-lg hover:bg-purple-600 transition-colors text-sm font-medium shadow-md hover:shadow-lg"
+                                    onClick={() => setBakimModalOpen(true)}
+                                >
+                                    <div className="flex items-center justify-center gap-2">
+                                        <Icons.Plus />
+                                        Bakım
+                                    </div>
+                                </button>
+                                <button 
+                                    className="flex-1 min-w-[140px] px-4 py-2.5 border-2 border-gray-300 rounded-lg hover:bg-gray-100 transition-colors text-sm font-medium"
+                                    onClick={() => { setModalOpen(false); setEditKalipModalOpen(true); }}
+                                >
+                                    <div className="flex items-center justify-center gap-2">
+                                        <Icons.Edit />
+                                        Düzenle
+                                    </div>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                );
+            };
+
+            const InfoBox = ({ label, value, highlight, children }) => (
+                <div className="p-3 bg-white rounded-lg border border-gray-200 shadow-sm">
+                    <p className="text-xs text-gray-500 mb-1">{label}</p>
+                    {children ? children : <p className={`text-sm font-semibold ${highlight || 'text-gray-900'}`}>{value}</p>}
+                </div>
+            );
+
+            const TabButton = ({ label, Icon, count, active, onClick }) => (
+                <button
+                    onClick={onClick}
+                    className={`flex items-center gap-2 px-4 py-3 border-b-2 font-medium transition-all ${
+                        active
+                            ? 'border-blue-500 text-blue-600 bg-blue-50'
+                            : 'border-transparent text-gray-500 hover:text-gray-900 hover:bg-gray-50'
+                    }`}
+                >
+                    <Icon />
+                    <span className="text-sm">{label}</span>
+                    <span className={`text-xs px-2 py-0.5 rounded-full font-semibold ${active ? 'bg-blue-200 text-blue-700' : 'bg-gray-200 text-gray-600'}`}>
+                        {count}
+                    </span>
+                </button>
+            );
+
+// ------- User, Notifications, Settings Handlers & Components -------
+const handleLogout = () => {
+    localStorage.removeItem('authToken');
+    localStorage.removeItem('kullanici');
+    // redirect to login
+    window.location.href = 'login.html';
+};
+
+const handleChangePassword = async (eskiSifre, yeniSifre) => {
+    try {
+        const resp = await fetch(`${API_URL}/auth/change-password`, {
+            method: 'POST',
+            headers: getAuthHeaders(),
+            body: JSON.stringify({ eskiSifre, yeniSifre })
+        });
+        if (resp.status === 401) return handleLogout();
+        if (!resp.ok) throw new Error('Şifre değiştirilemedi');
+        alert('✅ Şifre başarıyla değiştirildi');
+        setSettingsModalOpen(false);
+    } catch (err) {
+        console.error('Şifre değiştirme hatası:', err);
+        alert('❌ ' + (err.message || 'Şifre değiştirme sırasında hata oluştu'));
+    }
+};
+
+const SettingsModal = () => {
+    const [oldPass, setOldPass] = useState('');
+    const [newPass, setNewPass] = useState('');
+    const [changing, setChanging] = useState(false);
+
+    if (!settingsModalOpen) return null;
+
+    const onSubmit = async (e) => {
+        e.preventDefault();
+        if (!oldPass || !newPass) return alert('Lütfen tüm alanları doldurun');
+        if (newPass.length < 6) return alert('Yeni şifre en az 6 karakter olmalı');
+        setChanging(true);
+        await handleChangePassword(oldPass, newPass);
+        setChanging(false);
+    };
+
+    return (
+        <Modal show={settingsModalOpen} onClose={() => setSettingsModalOpen(false)} title="Ayarlar / Profil">
+            <div className="space-y-4">
+                <div>
+                    <p className="text-sm text-gray-600">Giriş yapan kullanıcı</p>
+                    <p className="font-medium">{currentUser ? `${currentUser.adSoyad} (${currentUser.kullaniciAdi})` : '—'}</p>
+                    <p className="text-xs text-gray-500">Rol: {currentUser ? currentUser.rol : '—'}</p>
+                </div>
+
+                <form onSubmit={onSubmit} className="grid grid-cols-1 gap-3">
+                    <Input label="Eski Şifre" type="password" value={oldPass} onChange={(e) => setOldPass(e.target.value)} required />
+                    <Input label="Yeni Şifre" type="password" value={newPass} onChange={(e) => setNewPass(e.target.value)} required />
+                    <div>
+                        <FormButton type="submit">{changing ? 'Değiştiriliyor...' : 'Şifreyi Değiştir'}</FormButton>
+                    </div>
+                </form>
+                <div className="pt-4 border-t border-gray-200">
+                    <button onClick={handleLogout} className="px-4 py-2 bg-red-500 text-white rounded-lg">Çıkış Yap</button>
+                </div>
+            </div>
+        </Modal>
+    );
+};
+
+const NotificationsPanel = () => {
+    if (!notificationsOpen) return null;
+    const today = new Date();
+    const nextWeek = new Date(today.getTime() + 7 * 24 * 60 * 60 * 1000);
+    const yaklasan = kaliplar.filter(k => {
+        const termin = new Date(k.termin);
+        return k.durum !== 'pasif' && termin >= today && termin <= nextWeek;
+    });
+    const revizyonList = kaliplar.filter(k => k.durum === 'revizyon');
+
+    return (
+        <div className="absolute right-0 mt-12 w-80 bg-white rounded-xl shadow-lg z-50 p-4">
+            <h4 className="font-semibold mb-2">Bildirimler</h4>
+            {yaklasan.length === 0 && revizyonList.length === 0 ? (
+                <p className="text-sm text-gray-500">Yeni bildirim yok</p>
+            ) : (
+                <div className="space-y-2 max-h-64 overflow-y-auto">
+                    {yaklasan.map(k => (
+                        <div key={`n-y-${k.id}`} className="p-2 rounded-lg bg-orange-50">
+                            <p className="text-sm font-medium">Yaklaşan termin: {k.ad}</p>
+                            <p className="text-xs text-gray-600">Termin: {k.termin} • {k.proje}</p>
+                        </div>
+                    ))}
+                    {revizyonList.map(k => (
+                        <div key={`n-r-${k.id}`} className="p-2 rounded-lg bg-yellow-50">
+                            <p className="text-sm font-medium">Revizyon: {k.ad}</p>
+                            <p className="text-xs text-gray-600">Tedarikçi: {k.tedarikci}</p>
+                        </div>
+                    ))}
+                </div>
+            )}
+            <div className="mt-3 text-right">
+                <button onClick={() => { setNotificationsOpen(false); setActiveTab('kaliplar'); }} className="text-sm text-blue-600">Tümünü Gör</button>
+            </div>
+        </div>
+    );
+};
+// KalipTakipApp fonksiyonunun içinde, return'den önce
+
+// ✅ Loading durumu
+if (loading) {
+    return (
+        <div className="min-h-screen flex items-center justify-center bg-gray-50">
+            <div className="text-center">
+                <div className="animate-spin rounded-full h-16 w-16 border-b-4 border-blue-600 mx-auto mb-4"></div>
+                <p className="text-gray-600 text-lg">Veriler yükleniyor...</p>
+            </div>
+        </div>
+    );
+}
+
+// ✅ Error durumu
+if (error) {
+    return (
+        <div className="min-h-screen flex items-center justify-center bg-gray-50">
+            <div className="text-center p-8 bg-white rounded-xl shadow-lg max-w-md">
+                <div className="text-red-500 text-5xl mb-4">⚠️</div>
+                <h2 className="text-xl font-bold text-gray-900 mb-2">Bağlantı Hatası</h2>
+                <p className="text-gray-600 mb-4">{error}</p>
+                <button 
+                    onClick={loadKaliplar}
+                    className="px-6 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600"
+                >
+                    Tekrar Dene
+                </button>
+            </div>
+        </div>
+    );
+}
+
+            return (
+                <div className="min-h-screen bg-gradient-to-br from-gray-50 via-blue-50 to-gray-100">
+                    <header className="bg-white shadow-md border-b border-gray-200 sticky top-0 z-40">
+                        <div className="max-w-screen-2xl mx-auto px-4 sm:px-6 lg:px-8">
+                            <div className="flex items-center justify-between h-16">
+                                <div className="flex items-center gap-3">
+                                    <div className="w-12 h-12 gradient-bg rounded-xl flex items-center justify-center text-white shadow-lg">
+                                        <Icons.ClipboardList />
+                                    </div>
+                                    <div>
+                                        <h1 className="text-xl font-bold text-gray-900">Kalıp Takip Sistemi</h1>
+                                        <p className="text-xs text-gray-500">Yaşam Döngüsü Yönetimi v2.0</p>
+                                    </div>
+                                </div>
+                                <div className="flex items-center gap-3 relative">
+                                    <div className="relative">
+                                        <button onClick={() => setNotificationsOpen(v => !v)} className="p-2 hover:bg-gray-100 rounded-lg transition-colors relative text-gray-600">
+                                            <Icons.Bell />
+                                            {notificationCount > 0 && (
+                                                <span className="absolute -top-1 -right-1 w-5 h-5 bg-red-500 text-white text-xs font-bold rounded-full flex items-center justify-center">
+                                                    {notificationCount}
+                                                </span>
+                                            )}
+                                        </button>
+                                        <NotificationsPanel />
+                                    </div>
+
+                                    <button onClick={() => setSettingsModalOpen(true)} className="p-2 hover:bg-gray-100 rounded-lg transition-colors text-gray-600" title="Ayarlar">
+                                        <Icons.Settings />
+                                    </button>
+
+                                    <div className="relative">
+                                        <button onClick={() => setUserMenuOpen(v => !v)} className="flex items-center gap-2 pl-3 border-l border-gray-200">
+                                            <div className="w-9 h-9 gradient-bg rounded-full flex items-center justify-center text-white shadow-md">
+                                                <Icons.User />
+                                            </div>
+                                            <div className="hidden md:block text-left">
+                                                <p className="text-sm font-medium text-gray-700">{currentUser ? currentUser.adSoyad : '...'}</p>
+                                                <p className="text-xs text-gray-500">{currentUser ? currentUser.rol : ''}</p>
+                                            </div>
+                                            <Icons.ChevronDown />
+                                        </button>
+
+                                        {userMenuOpen && (
+                                            <div className="absolute right-0 mt-2 w-48 bg-white rounded-xl shadow-lg z-50 p-2">
+                                                <button onClick={() => { setSettingsModalOpen(true); setUserMenuOpen(false); }} className="w-full text-left px-3 py-2 rounded hover:bg-gray-100">Profil / Ayarlar</button>
+                                                <button onClick={() => { setUserMenuOpen(false); setActiveTab('kullanicilar'); }} className="w-full text-left px-3 py-2 rounded hover:bg-gray-100">Hesap</button>
+                                                <div className="border-t my-1"></div>
+                                                <button onClick={handleLogout} className="w-full text-left px-3 py-2 rounded text-red-600 hover:bg-red-50">Çıkış Yap</button>
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </header>
+
+                    <nav className="bg-white shadow-sm border-b border-gray-200 sticky top-16 z-30">
+                        <div className="max-w-screen-2xl mx-auto px-4 sm:px-6 lg:px-8">
+                            <div className="flex gap-1 overflow-x-auto">
+                                {[
+                                    { id: 'dashboard', label: 'Dashboard', Icon: Icons.BarChart3 },
+                                    { id: 'kaliplar', label: 'Kalıplar', Icon: Icons.Package },
+                                    { id: 'deneme', label: 'Deneme Baskı', Icon: Icons.CheckCircle },
+                                    { id: 'revizyon', label: 'Revizyonlar', Icon: Icons.AlertCircle },
+                                    { id: 'bakim', label: 'Bakım', Icon: Icons.Settings },
+                                    { id: 'raporlar', label: 'Raporlar', Icon: Icons.FileText },
+                                    { id: 'arsiv', label: 'Arşiv', Icon: Icons.Archive }
+                                ].map(tab => (
+                                    <button
+                                        key={tab.id}
+                                        onClick={() => setActiveTab(tab.id)}
+                                        className={`flex items-center gap-2 px-4 py-3 border-b-2 transition-all whitespace-nowrap ${
+                                            activeTab === tab.id
+                                                ? 'border-blue-500 text-blue-600 bg-blue-50'
+                                                : 'border-transparent text-gray-600 hover:text-gray-900 hover:bg-gray-50'
+                                        }`}
+                                    >
+                                        <tab.Icon />
+                                        <span className="text-sm font-medium">{tab.label}</span>
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+                    </nav>
+
+                    <main className="max-w-screen-2xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+                        {activeTab === 'dashboard' && <Dashboard />}
+                        {activeTab === 'kaliplar' && <KalipListesi />}
+                        {activeTab === 'deneme' && <DenemeListesi />}
+                        {activeTab === 'revizyon' && <RevizyonListesi />}
+                        {activeTab === 'bakim' && <BakimListesi />}
+                        {activeTab === 'raporlar' && <RaporlarPage />}
+                        {activeTab === 'arsiv' && <ArsivPage />}
+                    </main>
+
+                    <footer className="bg-white border-t border-gray-200 mt-12">
+                        <div className="max-w-screen-2xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+                            <div className="flex flex-col md:flex-row justify-between items-center gap-4">
+                                <p className="text-sm text-gray-600">© 2024 Kalıp Takip Sistemi - Tüm hakları saklıdır</p>
+                                <div className="flex gap-4 text-sm text-gray-600">
+                                    <a href="#" className="hover:text-blue-600 transition-colors">Yardım</a>
+                                    <a href="#" className="hover:text-blue-600 transition-colors">Dokümantasyon</a>
+                                    <a href="#" className="hover:text-blue-600 transition-colors">İletişim</a>
+                                </div>
+                            </div>
+                        </div>
+                    </footer>
+
+                    <KalipDetayModal />
+                    <YeniKalipModal />
+                    <EditKalipModal />
+                    <SettingsModal />
+                    {selectedKalip && <DenemeBaskiModal />}
+                    {selectedKalip && <RevizyonModal />}
+                    {selectedKalip && <BakimModal />}
+                </div>
+            );
+        };
+
+        
+        ReactDOM.render(<KalipTakipApp />, document.getElementById('root'));
+    </script>
+</body>
+</html>

@@ -1,0 +1,132 @@
+{
+    "app": {
+        "title": "Mold Tracking System"
+    },
+    "login": {
+        "welcome": "Welcome, please login",
+        "username": "Username",
+        "username_placeholder": "Enter your username",
+        "password": "Password",
+        "password_placeholder": "Enter your password",
+        "remember_me": "Remember me",
+        "forgot_password": "Forgot password?",
+        "submit": "Login",
+        "submitting": "Logging in...",
+        "demo_accounts": "Demo Accounts",
+        "user": "User"
+    },
+    "dashboard": {
+        "title": "Mold Tracking & Planning System",
+        "welcome": "Welcome",
+        "logout": "Logout",
+        "stats": {
+            "total_molds": "Total Molds",
+            "active_molds": "Active Molds",
+            "pending_revision": "Pending Revision",
+            "total_cost": "Total Cost",
+            "active_working": "active working",
+            "in_production": "In production",
+            "urgent_deadlines": "urgent deadlines",
+            "tracking": "On track",
+            "revision_cost": "Revision"
+        },
+        "deadlines": {
+            "title": "Upcoming Deadlines",
+            "urgent": "Urgent",
+            "no_urgent": "No urgent deadlines",
+            "days_left": "days left"
+        },
+        "table": {
+            "search_placeholder": "Search molds...",
+            "filter_status": "Filter Status",
+            "filter_supplier": "Filter Supplier",
+            "all": "All",
+            "code": "Code",
+            "name": "Mold Name",
+            "project": "Project",
+            "status": "Status",
+            "supplier": "Supplier",
+            "cost": "Cost",
+            "deadline": "Deadline",
+            "actions": "Actions",
+            "empty": "No records found"
+        },
+        "buttons": {
+            "new_mold": "New Mold",
+            "export": "Export",
+            "save": "Save",
+            "cancel": "Cancel",
+            "delete": "Delete",
+            "edit": "Edit",
+            "details": "Details",
+            "add_trial": "Add Trial",
+            "add_revision": "Add Revision",
+            "add_maintenance": "Add Maintenance"
+        },
+        "modals": {
+            "new_mold_title": "Add New Mold",
+            "edit_mold_title": "Edit Mold",
+            "mold_details": "Mold Details",
+            "add_trial_title": "New Trial Record",
+            "add_revision_title": "New Revision Record",
+            "add_maintenance_title": "New Maintenance Record",
+            "form": {
+                "code": "Mold Code",
+                "name": "Mold Name",
+                "project": "Project Code",
+                "supplier": "Supplier",
+                "cavity": "Cavity Count",
+                "material": "Material",
+                "deadline": "Deadline Date",
+                "cost": "Cost (TL)",
+                "payment": "Payment Status",
+                "notes": "Notes",
+                "date": "Date",
+                "raw_material": "Raw Material",
+                "color": "Color",
+                "quantity": "Quantity",
+                "result": "Result",
+                "operator": "Operator",
+                "company": "Company",
+                "process": "Process",
+                "price": "Price",
+                "description": "Description",
+                "responsible": "Responsible",
+                "status": "Status"
+            },
+            "tabs": {
+                "info": "General Info",
+                "trials": "Trial History",
+                "revisions": "Revisions",
+                "maintenances": "Maintenances"
+            }
+        },
+        "chart": {
+            "title": "Status Distribution",
+            "quick_stats": "Quick Stats",
+            "total_trial": "Total Trials",
+            "total_revision": "Total Revisions",
+            "avg_cavity": "Avg. Cavities"
+        },
+        "activities": {
+            "title": "Recent Activities",
+            "trial": "Trial",
+            "revision": "Revision"
+        },
+        "status": {
+            "active": "Active",
+            "aktif": "Active",
+            "revision": "Revision",
+            "revizyon": "Revision",
+            "trial": "Trial",
+            "deneme": "Trial",
+            "passive": "Passive",
+            "pasif": "Passive"
+        }
+    },
+    "common": {
+        "loading": "Loading...",
+        "error": "An unknown error occurred",
+        "success": "Operation successful"
+    }
+}
