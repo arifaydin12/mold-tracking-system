@@ -1,9 +1,9 @@
 // Creates an administrator account with a bcrypt-hashed password.
-// Usage: npm run create-admin -- admin "Full Name" "a-strong-password"
-require('dotenv').config();
-
-const sql = require('mssql');
+// Usage: npm run create-admin -- <username> "<Full Name>" "<password>"
 const bcrypt = require('bcrypt');
+const { loadConfig } = require('../src/config/env');
+const { query, closePool } = require('../src/db/pool');
+const { schemas } = require('../src/validation/schemas');
 
 (async () => {
     const [username, fullName, password] = process.argv.slice(2);
@@ -11,29 +11,21 @@ const bcrypt = require('bcrypt');
         console.error('Usage: npm run create-admin -- <username> "<Full Name>" "<password>"');
         process.exit(1);
     }
-    if (password.length < 8) {
-        console.error('Password must be at least 8 characters long.');
+    const parsed = schemas.createUser.safeParse({ username, full_name: fullName, password, role: 'admin' });
+    if (!parsed.success) {
+        for (const issue of parsed.error.issues) console.error(`- ${issue.path.join('.')}: ${issue.message}`);
         process.exit(1);
     }
-
-    const pool = await sql.connect({
-        user: process.env.DB_USER,
-        password: process.env.DB_PASSWORD,
-        server: process.env.DB_SERVER,
-        database: process.env.DB_NAME,
-        options: { encrypt: false, trustServerCertificate: true }
-    });
-
-    const hash = await bcrypt.hash(password, 10);
-    await pool.request()
-        .input('u', sql.NVarChar, username)
-        .input('h', sql.NVarChar, hash)
-        .input('n', sql.NVarChar, fullName)
-        .query("INSERT INTO Kullanicilar (kullaniciAdi, sifre, adSoyad, rol) VALUES (@u, @h, @n, N'admin')");
-
-    console.log(`Admin created: ${username}`);
-    await pool.close();
-})().catch(err => {
-    console.error(err.message);
-    process.exit(1);
-});
+    const { data } = parsed;
+    const hash = await bcrypt.hash(data.password, loadConfig().auth.bcryptRounds);
+    await query(
+        `INSERT INTO users (username, password_hash, full_name, role) VALUES (@username, @hash, @fullName, N'admin')`,
+        { username: data.username, hash, fullName: data.full_name },
+    );
+    console.log(`Admin created: ${data.username}`);
+})()
+    .catch((err) => {
+        console.error(/uq_users_username/i.test(err.message) ? 'That username already exists.' : err.message);
+        process.exitCode = 1;
+    })
+    .finally(closePool);

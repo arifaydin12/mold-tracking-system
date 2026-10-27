@@ -1,414 +1,229 @@
-import React, { useState, useEffect, useMemo } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { useTranslation } from 'react-i18next';
-import axios from 'axios';
-import {
-    LayoutDashboard, Package, FileText, Settings, LogOut,
-    Bell, Search, Plus, Filter, Download,
-    TrendingUp, TrendingDown, DollarSign, CheckCircle,
-    AlertCircle, Clock, XCircle, ChevronDown, User, Calendar,
-    MoreVertical, Edit, Trash2, Eye
-} from 'lucide-react';
-import LanguageSelector from '../components/LanguageSelector';
-import { KalipModal, DetailModal, DenemeEkleModal, RevizyonEkleModal, BakimEkleModal } from '../components/Modals';
+import { Link } from 'react-router-dom'
+import { useTranslation } from 'react-i18next'
+import { AlertTriangle, Boxes, CalendarClock, CheckCircle2, Coins, Hammer, Wrench } from 'lucide-react'
+import { statsApi } from '../api'
+import { useAsync } from '../hooks/useAsync.js'
+import { usePageTitle } from '../hooks/usePageTitle.js'
+import { useAuth } from '../context/AuthContext.jsx'
+import { formatDate, formatMoney, formatNumber, formatRelative } from '../utils/format.js'
+import PageHeader from '../components/ui/PageHeader.jsx'
+import { CardSkeleton, Skeleton } from '../components/ui/Skeleton.jsx'
+import { EmptyState, ErrorState } from '../components/ui/States.jsx'
+import { StatusBadge, STATUS_HEX, MaintenanceStatusBadge } from '../components/ui/Badge.jsx'
+import DonutChart from '../components/charts/DonutChart.jsx'
+import CostBars from '../components/charts/CostBars.jsx'
 
-// --- UI Helper Components ---
-const StatusBadge = ({ status, t }) => {
-    const styles = {
-        aktif: 'bg-green-100 text-green-700',
-        active: 'bg-green-100 text-green-700',
-        revizyon: 'bg-orange-100 text-orange-700',
-        revision: 'bg-orange-100 text-orange-700',
-        deneme: 'bg-blue-100 text-blue-700',
-        trial: 'bg-blue-100 text-blue-700',
-        pasif: 'bg-gray-100 text-gray-700',
-        passive: 'bg-gray-100 text-gray-700'
-    };
-    return (
-        <span className={`px-2 py-1 rounded-full text-xs font-semibold ${styles[status?.toLowerCase()] || styles.pasif}`}>
-            {t ? t(`dashboard.status.${status?.toLowerCase()}`) : status}
-        </span>
-    );
-};
+const STATUS_ORDER = ['active', 'trial', 'revision', 'maintenance', 'retired']
 
-const StatCard = ({ title, value, change, icon, color, subtitle }) => (
-    <div className="bg-white rounded-xl p-6 shadow-sm hover:shadow-md transition-shadow border border-gray-100">
-        <div className="flex items-center justify-between">
-            <div className="flex-1">
-                <p className="text-sm text-gray-600 mb-1">{title}</p>
-                <h3 className="text-3xl font-bold text-gray-900 mb-1">{value}</h3>
-                {subtitle && <p className="text-xs text-gray-500">{subtitle}</p>}
-                {change !== undefined && (
-                    <div className="flex items-center gap-1 mt-2 text-sm text-green-600">
-                        <TrendingUp size={16} />
-                        <span>{Math.abs(change)}%</span>
-                    </div>
-                )}
+const TONES = {
+    brand: 'bg-brand-50 text-brand-600 dark:bg-brand-500/10 dark:text-brand-300',
+    green: 'bg-emerald-50 text-emerald-600 dark:bg-emerald-500/10 dark:text-emerald-300',
+    violet: 'bg-violet-50 text-violet-600 dark:bg-violet-500/10 dark:text-violet-300',
+    red: 'bg-red-50 text-red-600 dark:bg-red-500/10 dark:text-red-300',
+    amber: 'bg-amber-50 text-amber-600 dark:bg-amber-500/10 dark:text-amber-300',
+    sky: 'bg-sky-50 text-sky-600 dark:bg-sky-500/10 dark:text-sky-300',
+}
+
+function KpiCard({ icon: Icon, tone, label, value, hint, to }) {
+    const body = (
+        <>
+            <div className="flex items-center justify-between">
+                <p className="text-sm font-medium text-slate-500 dark:text-slate-400">{label}</p>
+                <span className={`flex h-9 w-9 items-center justify-center rounded-lg ${TONES[tone]}`}>
+                    <Icon className="h-5 w-5" aria-hidden="true" />
+                </span>
             </div>
-            <div className={`${color} p-4 rounded-xl shadow-lg transform transition-transform hover:scale-110`}>
-                {icon}
+            <p className="mt-3 text-3xl font-semibold tabular-nums tracking-tight text-slate-900 dark:text-white">{value}</p>
+            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">{hint}</p>
+        </>
+    )
+    const cls = 'card-padded block'
+    return to ? (
+        <Link to={to} className={`${cls} transition-shadow hover:shadow-md`}>
+            {body}
+        </Link>
+    ) : (
+        <div className={cls}>{body}</div>
+    )
+}
+
+function DaysChip({ days }) {
+    const { t } = useTranslation()
+    const tone = days < 0 ? 'bg-red-50 text-red-700 dark:bg-red-500/10 dark:text-red-300' : days <= 7 ? 'bg-amber-50 text-amber-800 dark:bg-amber-500/10 dark:text-amber-300' : 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300'
+    const text = days < 0 ? t('common.days_overdue', { count: Math.abs(days) }) : days === 0 ? t('common.due_today') : t('common.days_left', { count: days })
+    return <span className={`shrink-0 rounded-full px-2.5 py-0.5 text-xs font-medium ${tone}`}>{text}</span>
+}
+
+function Panel({ title, subtitle, children, className = '', action }) {
+    return (
+        <section className={`card min-w-0 ${className}`}>
+            <div className="flex items-start justify-between gap-3 px-5 pt-5">
+                <div>
+                    <h2 className="text-base font-semibold text-slate-900 dark:text-white">{title}</h2>
+                    {subtitle && <p className="text-xs text-slate-500 dark:text-slate-400">{subtitle}</p>}
+                </div>
+                {action}
+            </div>
+            <div className="p-5">{children}</div>
+        </section>
+    )
+}
+
+function DashboardSkeleton() {
+    return (
+        <div aria-busy="true" aria-live="polite">
+            <div className="mb-6 grid grid-cols-2 gap-4 lg:grid-cols-3">
+                {Array.from({ length: 6 }, (_, i) => (
+                    <div key={i} className="card-padded space-y-3">
+                        <Skeleton className="h-4 w-24" />
+                        <Skeleton className="h-8 w-16" />
+                        <Skeleton className="h-3 w-32" />
+                    </div>
+                ))}
+            </div>
+            <div className="grid grid-cols-1 gap-4 lg:grid-cols-5">
+                <CardSkeleton className="lg:col-span-2" lines={5} />
+                <CardSkeleton className="lg:col-span-3" lines={5} />
             </div>
         </div>
-    </div>
-);
+    )
+}
 
-const Dashboard = () => {
-    const { t } = useTranslation();
-    const navigate = useNavigate();
-    const [activeTab, setActiveTab] = useState('dashboard');
-    const [loading, setLoading] = useState(true);
-    const [kaliplar, setKaliplar] = useState([]);
-    const [stats, setStats] = useState({
-        toplamMaliyet: 0,
-        aktifKaliplar: 0,
-        revizyonBekleyen: 0,
-        toplamDeneme: 0,
-        toplamRevizyon: 0,
-        revizyonMaliyeti: 0
-    });
+export default function Dashboard() {
+    const { t, i18n } = useTranslation()
+    usePageTitle(t('nav.dashboard'))
+    const lng = i18n.language
+    const { user } = useAuth()
+    const { data, error, loading, reload } = useAsync(() => statsApi.dashboard(), [])
 
-    // UI States
-    const [searchTerm, setSearchTerm] = useState('');
-    const [durumFilter, setDurumFilter] = useState('hepsi');
-    const [selectedKalip, setSelectedKalip] = useState(null);
+    const header = <PageHeader title={t('dashboard.title')} subtitle={t('dashboard.welcome', { name: user.full_name.split(' ')[0] })} />
 
-    // Modal States
-    const [isNewModalOpen, setIsNewModalOpen] = useState(false);
-    const [isEditModalOpen, setIsEditModalOpen] = useState(false);
-    const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
-    const [isDenemeModalOpen, setIsDenemeModalOpen] = useState(false);
-    const [isRevizyonModalOpen, setIsRevizyonModalOpen] = useState(false);
-    const [isBakimModalOpen, setIsBakimModalOpen] = useState(false);
-
-    const user = JSON.parse(localStorage.getItem('kullanici') || '{}');
-    const token = localStorage.getItem('authToken');
-
-    const refreshData = async () => {
-        if (!token) {
-            navigate('/login');
-            return;
-        }
-
-        try {
-            setLoading(true);
-            const response = await axios.get('/api/kaliplar', {
-                headers: { Authorization: `Bearer ${token}` }
-            });
-            setKaliplar(response.data);
-            calculateStats(response.data);
-        } catch (err) {
-            console.error('Data refresh error:', err);
-            if (err.response && err.response.status === 401) {
-                localStorage.removeItem('authToken');
-                navigate('/login');
-            }
-        } finally {
-            setLoading(false);
-        }
-    };
-
-    useEffect(() => {
-        refreshData();
-    }, [navigate, token]);
-
-    const calculateStats = (data) => {
-        if (!Array.isArray(data)) return;
-
-        const toplamMaliyet = data.reduce((sum, k) => sum + (parseFloat(k.maliyet) || 0), 0);
-        const aktifKaliplar = data.filter(k => k.durum === 'aktif').length;
-        const revizyonBekleyen = data.filter(k => k.durum === 'revizyon').length;
-
-        let toplamDeneme = 0;
-        let toplamRevizyon = 0;
-        let revizyonMaliyeti = 0;
-
-        data.forEach(k => {
-            if (k.denemeler) toplamDeneme += k.denemeler.length;
-            if (k.revizyonlar) {
-                toplamRevizyon += k.revizyonlar.length;
-                revizyonMaliyeti += k.revizyonlar.reduce((s, r) => s + (parseFloat(r.fiyat) || 0), 0);
-            }
-        });
-
-        setStats({
-            toplamMaliyet,
-            aktifKaliplar,
-            revizyonBekleyen,
-            toplamDeneme,
-            toplamRevizyon,
-            revizyonMaliyeti
-        });
-    };
-
-    // --- Action Handlers ---
-
-    const handleSaveKalip = async (data) => {
-        try {
-            const config = { headers: { Authorization: `Bearer ${token}` } };
-            if (selectedKalip && isEditModalOpen) {
-                await axios.put(`/api/kaliplar/${selectedKalip.id}`, data, config);
-            } else {
-                await axios.post('/api/kaliplar', data, config);
-            }
-            refreshData();
-            setIsNewModalOpen(false);
-            setIsEditModalOpen(false);
-        } catch (err) {
-            console.error(err);
-            alert(t('common.error') + ': ' + (err.response?.data?.error || err.message));
-        }
-    };
-
-    const handleDelete = async (id) => {
-        if (!window.confirm(t('common.confirm_delete'))) return;
-        try {
-            await axios.delete(`/api/kaliplar/${id}`, { headers: { Authorization: `Bearer ${token}` } });
-            refreshData();
-        } catch (err) {
-            console.error(err);
-            alert(t('common.error'));
-        }
-    };
-
-    const handleSubProcess = async (endpoint, data, modalSetter) => {
-        try {
-            await axios.post(endpoint, { ...data, kalipId: selectedKalip.id }, { headers: { Authorization: `Bearer ${token}` } });
-            // Update local state and selectedKalip without full reload for smoother UX, but full reload ensures consistency
-            await refreshData();
-            modalSetter(false);
-            // Re-select proper selectedKalip from updated list if needed, or close details.
-            // We will close the sub-modal and likely the user will view details again.
-            // But selectedKalip is stale. We need to update it.
-            // Since refreshData updates kaliplar, we can find it there.
-            // HOWEVER, refreshData is async and state update is batched.
-            // Better to fetch fresh list here and update selectedKalip immediately.
-            const response = await axios.get('/api/kaliplar', { headers: { Authorization: `Bearer ${token}` } });
-            const updated = response.data.find(k => k.id === selectedKalip.id);
-            setSelectedKalip(updated);
-            setIsDetailModalOpen(true); // Re-open details
-        } catch (err) {
-            console.error(err);
-            alert(t('common.error') + ': ' + (err.response?.data?.error || err.message));
-        }
+    if (loading && !data) {
+        return (
+            <>
+                {header}
+                <DashboardSkeleton />
+            </>
+        )
+    }
+    if (error && !data) {
+        return (
+            <>
+                {header}
+                <div className="card">
+                    <ErrorState error={error} onRetry={reload} />
+                </div>
+            </>
+        )
     }
 
-    const filteredKaliplar = useMemo(() => {
-        if (!Array.isArray(kaliplar)) return [];
-        return kaliplar.filter(k => {
-            const matchSearch = k.ad?.toLowerCase().includes(searchTerm.toLowerCase()) || k.kod?.toLowerCase().includes(searchTerm.toLowerCase());
-            const matchFilter = durumFilter === 'hepsi' || k.durum === durumFilter;
-            return matchSearch && matchFilter;
-        });
-    }, [kaliplar, searchTerm, durumFilter]);
-
-    if (loading) return (
-        <div className="min-h-screen flex items-center justify-center bg-gray-50">
-            <div className="text-center">
-                <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-purple-600 mx-auto mb-4"></div>
-                <p className="text-gray-600">{t('common.loading')}</p>
-            </div>
-        </div>
-    );
+    const d = data.data
+    const k = d.kpis
+    const counts = Object.fromEntries(d.status_distribution.map((s) => [s.status, s.count]))
+    const segments = STATUS_ORDER.map((s) => ({ key: s, label: t(`status.${s}`), value: counts[s] || 0, color: STATUS_HEX[s] }))
+    const supplierRows = d.cost_by_supplier.slice(0, 7).map((s) => ({ label: s.supplier === 'Unassigned' ? t('common.unassigned') : s.supplier, primary: s.mold_cost, secondary: s.revision_cost }))
 
     return (
-        <div className="min-h-screen bg-gray-50 flex font-sans text-gray-900">
-            {/* Sidebar */}
-            <aside className="w-64 bg-white border-r border-gray-200 hidden lg:flex flex-col fixed h-full z-10">
-                <div className="p-6">
-                    <div className="flex items-center gap-2 mb-8">
-                        <div className="w-8 h-8 gradient-bg rounded-lg flex items-center justify-center text-white">
-                            <Package className="w-5 h-5" />
-                        </div>
-                        <span className="font-bold text-gray-800">KalıpTakip</span>
-                    </div>
-                    <nav className="space-y-1">
-                        <button onClick={() => setActiveTab('dashboard')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-colors ${activeTab === 'dashboard' ? 'bg-purple-50 text-purple-700' : 'text-gray-600 hover:bg-gray-50'}`}>
-                            <LayoutDashboard size={20} /> {t('dashboard.title').split(' ')[0]}
-                        </button>
-                        <button onClick={() => setActiveTab('kaliplar')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-colors ${activeTab === 'kaliplar' ? 'bg-purple-50 text-purple-700' : 'text-gray-600 hover:bg-gray-50'}`}>
-                            <Package size={20} /> {t('dashboard.stats.total_molds')}
-                        </button>
-                        <button className="w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium text-gray-600 hover:bg-gray-50"><FileText size={20} /> Raporlar</button>
-                        <button className="w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium text-gray-600 hover:bg-gray-50"><Settings size={20} /> Ayarlar</button>
-                    </nav>
-                </div>
-                <div className="mt-auto p-6 border-t border-gray-100">
-                    <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 rounded-full bg-purple-100 flex items-center justify-center text-purple-600 font-bold">
-                            {user.adSoyad?.charAt(0) || 'U'}
-                        </div>
-                        <div className="flex-1 overflow-hidden">
-                            <p className="text-sm font-medium text-gray-900 truncate">{user.adSoyad}</p>
-                            <p className="text-xs text-gray-500 truncate">{user.rol}</p>
-                        </div>
-                    </div>
-                    <button onClick={() => { localStorage.removeItem('authToken'); navigate('/login'); }} className="mt-4 flex items-center gap-2 text-sm text-red-600 hover:bg-red-50 p-2 rounded-lg w-full transition-colors">
-                        <LogOut size={16} /> {t('dashboard.logout')}
-                    </button>
-                </div>
-            </aside>
+        <>
+            {header}
+            <div className="mb-6 grid grid-cols-2 gap-4 lg:grid-cols-3" aria-label={t('dashboard.kpis')}>
+                <KpiCard icon={Boxes} tone="brand" label={t('dashboard.kpi_total')} value={formatNumber(k.total_molds, lng)} hint={t('dashboard.kpi_total_hint', { count: k.unpaid_molds })} to="/molds" />
+                <KpiCard icon={CheckCircle2} tone="green" label={t('dashboard.kpi_active')} value={formatNumber(k.active_molds, lng)} hint={t('dashboard.kpi_active_hint')} to="/molds?status=active" />
+                <KpiCard icon={Hammer} tone="violet" label={t('dashboard.kpi_revision')} value={formatNumber(k.in_revision, lng)} hint={t('dashboard.kpi_revision_hint')} to="/molds?status=revision" />
+                <KpiCard icon={AlertTriangle} tone={k.overdue_deadlines > 0 ? 'red' : 'amber'} label={t('dashboard.kpi_overdue')} value={formatNumber(k.overdue_deadlines, lng)} hint={t('dashboard.kpi_overdue_hint', { count: k.due_soon })} />
+                <KpiCard icon={Wrench} tone="sky" label={t('dashboard.kpi_maintenance')} value={formatNumber(k.maintenance_due, lng)} hint={t('dashboard.kpi_maintenance_hint')} />
+                <KpiCard icon={Coins} tone="amber" label={t('dashboard.kpi_cost')} value={formatMoney(k.total_cost, lng, { compact: true })} hint={t('dashboard.kpi_cost_hint', { revisions: formatMoney(k.revision_cost, lng, { compact: true }) })} />
+            </div>
 
-            <main className="flex-1 overflow-x-hidden overflow-y-auto lg:ml-64">
-                <header className="bg-white border-b border-gray-200 sticky top-0 z-20 px-8 py-4 flex items-center justify-between shadow-sm">
-                    <h2 className="text-xl font-semibold text-gray-800">{t('dashboard.welcome')}, {user.adSoyad}</h2>
-                    <div className="flex gap-4"><LanguageSelector /></div>
-                </header>
-
-                <div className="p-8 space-y-6">
-                    {activeTab === 'dashboard' && (
-                        <div className="space-y-6 animate-fade-in">
-                            {/* Dashboard Stats */}
-                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-                                <StatCard title={t('dashboard.stats.total_molds')} value={kaliplar.length} color="bg-blue-500" icon={<Package className="text-white" />} />
-                                <StatCard title={t('dashboard.stats.active_molds')} value={stats.aktifKaliplar} color="bg-green-500" icon={<CheckCircle className="text-white" />} />
-                                <StatCard title={t('dashboard.stats.pending_revision')} value={stats.revizyonBekleyen} color="bg-orange-500" icon={<AlertCircle className="text-white" />} />
-                                <StatCard title={t('dashboard.stats.total_cost')} value={`₺${(stats.toplamMaliyet / 1000).toFixed(0)}K`} color="bg-purple-500" icon={<DollarSign className="text-white" />} />
-                            </div>
-
-                            {/* Charts & Deadlines */}
-                            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                                <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
-                                    <h3 className="font-semibold mb-4 flex items-center gap-2 text-lg"><Calendar size={18} /> {t('dashboard.deadlines.title')}</h3>
-                                    <div className="space-y-2">
-                                        {kaliplar.filter(k => new Date(k.termin) > new Date()).sort((a, b) => new Date(a.termin) - new Date(b.termin)).slice(0, 5).map(k => (
-                                            <div key={k.id} className="flex justify-between items-center py-3 px-3 hover:bg-red-50 rounded-lg border-l-4 border-red-500 bg-white shadow-sm transition-all">
-                                                <div>
-                                                    <p className="text-sm font-medium text-gray-800">{k.ad}</p>
-                                                    <p className="text-xs text-gray-500">{k.kod}</p>
-                                                </div>
-                                                <div className="text-right">
-                                                    <p className="text-sm font-bold text-red-600">{new Date(k.termin).toLocaleDateString()}</p>
-                                                    <p className="text-xs text-red-400">Acil</p>
-                                                </div>
-                                            </div>
-                                        ))}
-                                        {kaliplar.length === 0 && <p className="text-gray-500 italic text-center py-4">{t('table.empty')}</p>}
-                                    </div>
-                                </div>
-                                <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
-                                    <h3 className="font-semibold mb-4 flex items-center gap-2 text-lg"><FileText size={18} /> {t('dashboard.activities.title')}</h3>
-                                    <div className="space-y-3">
-                                        {/* Activity Stream Mockup based on recent edits if any, or general info */}
-                                        <div className="flex items-center gap-3 p-3 bg-blue-50 rounded-lg">
-                                            <div className="p-2 bg-blue-100 rounded-full text-blue-600"><Clock size={16} /></div>
-                                            <div>
-                                                <p className="text-sm font-medium">Sistem Başlatıldı</p>
-                                                <p className="text-xs text-gray-500">Kullanıcı girişi yapıldı</p>
-                                            </div>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
+            <div className="mb-4 grid grid-cols-1 gap-4 lg:grid-cols-5">
+                <Panel title={t('dashboard.status_title')} subtitle={t('dashboard.status_subtitle')} className="lg:col-span-2">
+                    <DonutChart segments={segments} centerValue={formatNumber(k.total_molds, lng)} centerLabel={t('dashboard.molds_label')} ariaLabel={t('dashboard.status_title')} />
+                </Panel>
+                <Panel title={t('dashboard.supplier_title')} subtitle={t('dashboard.supplier_subtitle')} className="lg:col-span-3">
+                    {supplierRows.length ? (
+                        <CostBars rows={supplierRows} lng={lng} primaryLabel={t('dashboard.purchase_cost')} secondaryLabel={t('dashboard.revision_cost')} ariaLabel={t('dashboard.supplier_title')} />
+                    ) : (
+                        <EmptyState title={t('dashboard.no_costs')} />
                     )}
+                </Panel>
+            </div>
 
-                    {activeTab === 'kaliplar' && (
-                        <div className="space-y-6 animate-fade-in">
-                            <div className="flex flex-col md:flex-row justify-between items-center bg-white p-4 rounded-xl shadow-sm gap-4">
-                                <div className="flex gap-4 flex-1 w-full md:w-auto">
-                                    <div className="relative flex-1 max-w-md">
-                                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-5 h-5" />
-                                        <input
-                                            type="text"
-                                            className="w-full pl-10 pr-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
-                                            placeholder={t('table.search_placeholder')}
-                                            value={searchTerm}
-                                            onChange={(e) => setSearchTerm(e.target.value)}
-                                        />
+            <div className="mb-4 grid grid-cols-1 gap-4 lg:grid-cols-2">
+                <Panel
+                    title={t('dashboard.deadlines_title')}
+                    subtitle={t('dashboard.deadlines_subtitle')}
+                    action={
+                        <Link to="/molds?sort=deadline&order=asc" className="text-sm font-medium text-brand-600 hover:underline dark:text-brand-400">
+                            {t('common.view_all')}
+                        </Link>
+                    }
+                >
+                    {d.upcoming_deadlines.length === 0 ? (
+                        <EmptyState icon={CalendarClock} title={t('dashboard.no_deadlines')} />
+                    ) : (
+                        <ul className="-my-2 divide-y divide-slate-100 dark:divide-slate-800">
+                            {d.upcoming_deadlines.map((m) => (
+                                <li key={m.id} className="flex items-center justify-between gap-3 py-3">
+                                    <div className="min-w-0">
+                                        <Link to={`/molds/${m.id}`} className="block truncate text-sm font-medium text-slate-900 hover:text-brand-600 dark:text-white dark:hover:text-brand-400">
+                                            {m.code} <span className="font-normal text-slate-500 dark:text-slate-400">· {m.name}</span>
+                                        </Link>
+                                        <p className="mt-0.5 flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
+                                            <StatusBadge value={m.status} />
+                                            <span>{formatDate(m.deadline, lng)}</span>
+                                        </p>
                                     </div>
-                                    <select
-                                        className="border border-gray-200 rounded-lg px-4 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-purple-500"
-                                        value={durumFilter}
-                                        onChange={(e) => setDurumFilter(e.target.value)}
-                                    >
-                                        <option value="hepsi">{t('table.all')}</option>
-                                        <option value="aktif">{t('dashboard.status.active')}</option>
-                                        <option value="deneme">{t('dashboard.status.trial')}</option>
-                                        <option value="revizyon">{t('dashboard.status.revision')}</option>
-                                    </select>
-                                </div>
-                                <button
-                                    onClick={() => { setSelectedKalip(null); setIsNewModalOpen(true); }}
-                                    className="bg-purple-600 text-white px-4 py-2 rounded-lg flex items-center gap-2 hover:bg-purple-700 transition-colors shadow-lg hover:shadow-xl transform hover:-translate-y-0.5"
-                                >
-                                    <Plus className="w-5 h-5" />
-                                    {t('buttons.new_mold')}
-                                </button>
-                            </div>
-
-                            <div className="bg-white rounded-xl shadow-sm overflow-hidden border border-gray-100">
-                                <div className="overflow-x-auto">
-                                    <table className="w-full text-left">
-                                        <thead className="bg-gray-50 border-b border-gray-100">
-                                            <tr>
-                                                <th className="px-6 py-4 text-xs font-semibold text-gray-500 uppercase">{t('table.code')}</th>
-                                                <th className="px-6 py-4 text-xs font-semibold text-gray-500 uppercase">{t('table.name')}</th>
-                                                <th className="px-6 py-4 text-xs font-semibold text-gray-500 uppercase">{t('table.status')}</th>
-                                                <th className="px-6 py-4 text-xs font-semibold text-gray-500 uppercase">{t('table.supplier')}</th>
-                                                <th className="px-6 py-4 text-xs font-semibold text-gray-500 uppercase">{t('table.deadline')}</th>
-                                                <th className="px-6 py-4 text-xs font-semibold text-gray-500 uppercase text-right">{t('table.actions')}</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody className="divide-y divide-gray-100">
-                                            {filteredKaliplar.length > 0 ? filteredKaliplar.map((kalip) => (
-                                                <tr key={kalip.id} className="hover:bg-purple-50 transition-colors group">
-                                                    <td className="px-6 py-4 font-mono text-sm text-purple-600 font-medium">{kalip.kod}</td>
-                                                    <td className="px-6 py-4">
-                                                        <div className="font-medium text-gray-900">{kalip.ad}</div>
-                                                        <div className="text-xs text-gray-500">{kalip.proje}</div>
-                                                    </td>
-                                                    <td className="px-6 py-4"><StatusBadge status={kalip.durum} t={t} /></td>
-                                                    <td className="px-6 py-4 text-sm text-gray-600">{kalip.tedarikci}</td>
-                                                    <td className="px-6 py-4 text-sm text-gray-600">{new Date(kalip.termin).toLocaleDateString()}</td>
-                                                    <td className="px-6 py-4 text-right">
-                                                        <div className="flex items-center justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                                                            <button onClick={() => { setSelectedKalip(kalip); setIsDetailModalOpen(true); }} className="p-2 text-blue-600 hover:bg-blue-100 rounded-lg transition-colors" title={t('buttons.details')}><Eye className="w-4 h-4" /></button>
-                                                            <button onClick={() => { setSelectedKalip(kalip); setIsEditModalOpen(true); }} className="p-2 text-orange-600 hover:bg-orange-100 rounded-lg transition-colors" title={t('buttons.edit')}><Edit className="w-4 h-4" /></button>
-                                                            <button onClick={() => handleDelete(kalip.id)} className="p-2 text-red-600 hover:bg-red-100 rounded-lg transition-colors" title={t('buttons.delete')}><Trash2 className="w-4 h-4" /></button>
-                                                        </div>
-                                                    </td>
-                                                </tr>
-                                            )) : (
-                                                <tr>
-                                                    <td colSpan="6" className="px-6 py-12 text-center text-gray-500">
-                                                        <Package className="w-12 h-12 mx-auto mb-3 text-gray-300" />
-                                                        <p>{t('table.empty')}</p>
-                                                    </td>
-                                                </tr>
-                                            )}
-                                        </tbody>
-                                    </table>
-                                </div>
-                            </div>
-                        </div>
+                                    <DaysChip days={m.days_left} />
+                                </li>
+                            ))}
+                        </ul>
                     )}
-                </div>
-            </main>
+                </Panel>
 
-            {/* Modals */}
-            <KalipModal
-                isOpen={isNewModalOpen || isEditModalOpen}
-                onClose={() => { setIsNewModalOpen(false); setIsEditModalOpen(false); setSelectedKalip(null); }}
-                onSave={handleSaveKalip}
-                initialData={isEditModalOpen ? selectedKalip : null}
-            />
+                <Panel title={t('dashboard.maintenance_title')} subtitle={t('dashboard.maintenance_subtitle')}>
+                    {d.maintenance_due.length === 0 ? (
+                        <EmptyState icon={Wrench} title={t('dashboard.no_maintenance')} />
+                    ) : (
+                        <ul className="-my-2 divide-y divide-slate-100 dark:divide-slate-800">
+                            {d.maintenance_due.map((m) => (
+                                <li key={m.id} className="flex items-center justify-between gap-3 py-3">
+                                    <div className="min-w-0">
+                                        <Link to={`/molds/${m.mold_id}`} className="block truncate text-sm font-medium text-slate-900 hover:text-brand-600 dark:text-white dark:hover:text-brand-400">
+                                            {m.code} <span className="font-normal text-slate-500 dark:text-slate-400">· {m.name}</span>
+                                        </Link>
+                                        <p className="mt-0.5 flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
+                                            <MaintenanceStatusBadge value={m.status} />
+                                            <span className="truncate">{m.description}</span>
+                                        </p>
+                                    </div>
+                                    <DaysChip days={m.days_left} />
+                                </li>
+                            ))}
+                        </ul>
+                    )}
+                </Panel>
+            </div>
 
-            <DetailModal
-                isOpen={isDetailModalOpen}
-                onClose={() => setIsDetailModalOpen(false)}
-                kalip={selectedKalip}
-                onAddDeneme={() => { setIsDetailModalOpen(false); setIsDenemeModalOpen(true); }}
-                onAddRevizyon={() => { setIsDetailModalOpen(false); setIsRevizyonModalOpen(true); }}
-                onAddBakim={() => { setIsDetailModalOpen(false); setIsBakimModalOpen(true); }}
-            />
-
-            <DenemeEkleModal isOpen={isDenemeModalOpen} onClose={() => setIsDenemeModalOpen(false)} onSave={(data) => handleSubProcess('/api/deneme', data, setIsDenemeModalOpen)} />
-            <RevizyonEkleModal isOpen={isRevizyonModalOpen} onClose={() => setIsRevizyonModalOpen(false)} onSave={(data) => handleSubProcess('/api/revizyon', data, setIsRevizyonModalOpen)} />
-            <BakimEkleModal isOpen={isBakimModalOpen} onClose={() => setIsBakimModalOpen(false)} onSave={(data) => handleSubProcess('/api/bakim', data, setIsBakimModalOpen)} />
-        </div>
-    );
-};
-
-
-
-export default Dashboard;
+            <Panel title={t('dashboard.activity_title')} subtitle={t('dashboard.activity_subtitle')}>
+                {d.recent_activity.length === 0 ? (
+                    <EmptyState title={t('dashboard.no_activity')} />
+                ) : (
+                    <ul className="-my-2 divide-y divide-slate-100 dark:divide-slate-800">
+                        {d.recent_activity.map((a) => (
+                            <li key={a.id} className="flex items-center justify-between gap-4 py-3">
+                                <p className="min-w-0 text-sm text-slate-700 dark:text-slate-300">
+                                    <span className="font-medium text-slate-900 dark:text-white">{a.user_name || t('common.system')}</span>{' '}
+                                    <span className="text-slate-500 dark:text-slate-400">{t(`audit.actions.${a.action.replace('.', '_')}`, { defaultValue: a.action })}</span>
+                                    <span className="block truncate text-xs text-slate-500 dark:text-slate-400">{a.description}</span>
+                                </p>
+                                <time className="shrink-0 text-xs text-slate-500 dark:text-slate-400" dateTime={a.created_at}>
+                                    {formatRelative(a.created_at, lng)}
+                                </time>
+                            </li>
+                        ))}
+                    </ul>
+                )}
+            </Panel>
+        </>
+    )
+}

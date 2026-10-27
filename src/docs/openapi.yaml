@@ -1,0 +1,876 @@
+openapi: 3.0.3
+info:
+  title: Mold Tracking API
+  version: 2.0.0
+  description: |
+    REST API for tracking injection moulds through their lifecycle: purchasing, trial runs,
+    revisions and maintenance.
+
+    **Authentication.** `POST /auth/login` returns a short-lived JWT access token (send it as
+    `Authorization: Bearer <token>`) and sets a rotating refresh token in an httpOnly cookie.
+    Call `POST /auth/refresh` to obtain a new access token.
+
+    **Roles.** `admin` (everything), `engineer` (create/edit molds and history, archive molds),
+    `viewer` (read-only).
+
+    **Errors** always have the shape `{ "error": { "code", "message", "details?" } }`.
+servers:
+  - url: /api
+tags:
+  - name: Auth
+  - name: Molds
+  - name: History
+    description: Trials, revisions and maintenance records of a mold
+  - name: Suppliers
+  - name: Users
+  - name: Logs
+  - name: Stats
+  - name: System
+security:
+  - bearerAuth: []
+paths:
+  /health:
+    get:
+      tags: [System]
+      summary: Liveness and database check
+      security: []
+      responses:
+        '200':
+          description: API and database are up
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Health' }
+        '503':
+          description: Database unreachable
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Health' }
+  /auth/login:
+    post:
+      tags: [Auth]
+      summary: Sign in
+      description: Rate limited per IP (default 10 attempts / 15 minutes). Every attempt is written to the login log.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/LoginRequest' }
+      responses:
+        '200': { $ref: '#/components/responses/Session' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Error' }
+        '429': { $ref: '#/components/responses/Error' }
+  /auth/refresh:
+    post:
+      tags: [Auth]
+      summary: Rotate the refresh cookie and get a new access token
+      description: Reusing an already-rotated refresh token revokes every session of that user.
+      security: []
+      responses:
+        '200': { $ref: '#/components/responses/Session' }
+        '401': { $ref: '#/components/responses/Error' }
+  /auth/logout:
+    post:
+      tags: [Auth]
+      summary: Revoke the current refresh token
+      security: []
+      responses:
+        '204': { description: Signed out }
+  /auth/me:
+    get:
+      tags: [Auth]
+      summary: Current user
+      responses:
+        '200':
+          description: The signed-in user
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  user: { $ref: '#/components/schemas/User' }
+        '401': { $ref: '#/components/responses/Error' }
+    patch:
+      tags: [Auth]
+      summary: Update own profile
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                full_name: { type: string }
+                email: { type: string, format: email, nullable: true }
+                department: { type: string, nullable: true }
+      responses:
+        '200':
+          description: Updated user
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  user: { $ref: '#/components/schemas/User' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+  /auth/change-password:
+    post:
+      tags: [Auth]
+      summary: Change own password
+      description: Signs out all other sessions and returns a fresh session for the caller.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [current_password, new_password]
+              properties:
+                current_password: { type: string }
+                new_password: { type: string, minLength: 8, description: At least 8 characters with a letter and a digit }
+      responses:
+        '200': { $ref: '#/components/responses/Session' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+  /molds:
+    get:
+      tags: [Molds]
+      summary: List molds (search, filter, sort, paginate)
+      parameters:
+        - { name: search, in: query, schema: { type: string }, description: 'Matches code, name, project, material and supplier' }
+        - { name: status, in: query, schema: { $ref: '#/components/schemas/MoldStatus' } }
+        - { name: supplier_id, in: query, schema: { type: integer } }
+        - { name: payment_status, in: query, schema: { $ref: '#/components/schemas/PaymentStatus' } }
+        - { name: archived, in: query, schema: { type: string, enum: ['false', 'true', 'all'], default: 'false' } }
+        - { name: sort, in: query, schema: { type: string, enum: [code, name, status, deadline, cost, created_at, supplier], default: created_at } }
+        - { name: order, in: query, schema: { type: string, enum: [asc, desc], default: desc } }
+        - { name: page, in: query, schema: { type: integer, minimum: 1, default: 1 } }
+        - { name: page_size, in: query, schema: { type: integer, minimum: 1, maximum: 100, default: 20 } }
+      responses:
+        '200':
+          description: A page of molds
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: '#/components/schemas/MoldSummary' }
+                  meta: { $ref: '#/components/schemas/PageMeta' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+    post:
+      tags: [Molds]
+      summary: Create a mold (admin, engineer)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/MoldInput' }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: '#/components/schemas/MoldDetail' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '403': { $ref: '#/components/responses/Error' }
+        '409': { $ref: '#/components/responses/Error' }
+  /molds/{id}:
+    parameters:
+      - { $ref: '#/components/parameters/Id' }
+    get:
+      tags: [Molds]
+      summary: Mold with trials, revisions, maintenance and cost totals
+      responses:
+        '200':
+          description: The mold
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: '#/components/schemas/MoldDetail' }
+        '404': { $ref: '#/components/responses/Error' }
+    patch:
+      tags: [Molds]
+      summary: Update a mold (admin, engineer)
+      description: Any subset of the fields. Archived molds cannot be edited.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/MoldInput' }
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: '#/components/schemas/MoldDetail' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '403': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+        '409': { $ref: '#/components/responses/Error' }
+    delete:
+      tags: [Molds]
+      summary: Archive a mold (soft delete; admin, engineer)
+      responses:
+        '204': { description: Archived }
+        '403': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+        '409': { $ref: '#/components/responses/Error' }
+  /molds/{id}/restore:
+    post:
+      tags: [Molds]
+      summary: Restore an archived mold (admin)
+      parameters:
+        - { $ref: '#/components/parameters/Id' }
+      responses:
+        '200':
+          description: Restored
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: '#/components/schemas/MoldDetail' }
+        '403': { $ref: '#/components/responses/Error' }
+        '409': { $ref: '#/components/responses/Error' }
+  /molds/{id}/trials:
+    parameters:
+      - { $ref: '#/components/parameters/Id' }
+    get:
+      tags: [History]
+      summary: List trial runs
+      responses:
+        '200': { $ref: '#/components/responses/RecordList' }
+    post:
+      tags: [History]
+      summary: Add a trial run (admin, engineer)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/TrialInput' }
+      responses:
+        '201': { $ref: '#/components/responses/Record' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '409': { $ref: '#/components/responses/Error' }
+  /molds/{id}/trials/{recordId}:
+    parameters:
+      - { $ref: '#/components/parameters/Id' }
+      - { $ref: '#/components/parameters/RecordId' }
+    patch:
+      tags: [History]
+      summary: Update a trial run (admin, engineer)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/TrialInput' }
+      responses:
+        '200': { $ref: '#/components/responses/Record' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '404': { $ref: '#/components/responses/Error' }
+    delete:
+      tags: [History]
+      summary: Delete a trial run (admin, engineer)
+      responses:
+        '204': { description: Deleted }
+        '404': { $ref: '#/components/responses/Error' }
+  /molds/{id}/revisions:
+    parameters:
+      - { $ref: '#/components/parameters/Id' }
+    get:
+      tags: [History]
+      summary: List revisions
+      responses:
+        '200': { $ref: '#/components/responses/RecordList' }
+    post:
+      tags: [History]
+      summary: Add a revision (admin, engineer)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RevisionInput' }
+      responses:
+        '201': { $ref: '#/components/responses/Record' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+  /molds/{id}/revisions/{recordId}:
+    parameters:
+      - { $ref: '#/components/parameters/Id' }
+      - { $ref: '#/components/parameters/RecordId' }
+    patch:
+      tags: [History]
+      summary: Update a revision (admin, engineer)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RevisionInput' }
+      responses:
+        '200': { $ref: '#/components/responses/Record' }
+        '404': { $ref: '#/components/responses/Error' }
+    delete:
+      tags: [History]
+      summary: Delete a revision (admin, engineer)
+      responses:
+        '204': { description: Deleted }
+        '404': { $ref: '#/components/responses/Error' }
+  /molds/{id}/maintenance:
+    parameters:
+      - { $ref: '#/components/parameters/Id' }
+    get:
+      tags: [History]
+      summary: List maintenance records
+      responses:
+        '200': { $ref: '#/components/responses/RecordList' }
+    post:
+      tags: [History]
+      summary: Add a maintenance record (admin, engineer)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/MaintenanceInput' }
+      responses:
+        '201': { $ref: '#/components/responses/Record' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+  /molds/{id}/maintenance/{recordId}:
+    parameters:
+      - { $ref: '#/components/parameters/Id' }
+      - { $ref: '#/components/parameters/RecordId' }
+    patch:
+      tags: [History]
+      summary: Update a maintenance record (admin, engineer)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/MaintenanceInput' }
+      responses:
+        '200': { $ref: '#/components/responses/Record' }
+        '404': { $ref: '#/components/responses/Error' }
+    delete:
+      tags: [History]
+      summary: Delete a maintenance record (admin, engineer)
+      responses:
+        '204': { description: Deleted }
+        '404': { $ref: '#/components/responses/Error' }
+  /suppliers:
+    get:
+      tags: [Suppliers]
+      summary: List suppliers
+      responses:
+        '200':
+          description: All suppliers
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: '#/components/schemas/Supplier' }
+    post:
+      tags: [Suppliers]
+      summary: Create a supplier (admin, engineer)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SupplierInput' }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: '#/components/schemas/Supplier' }
+        '409': { $ref: '#/components/responses/Error' }
+  /suppliers/{id}:
+    patch:
+      tags: [Suppliers]
+      summary: Update a supplier (admin, engineer)
+      parameters:
+        - { $ref: '#/components/parameters/Id' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SupplierInput' }
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: '#/components/schemas/Supplier' }
+  /users:
+    get:
+      tags: [Users]
+      summary: List users (admin)
+      parameters:
+        - { name: search, in: query, schema: { type: string } }
+        - { name: role, in: query, schema: { $ref: '#/components/schemas/Role' } }
+        - { name: is_active, in: query, schema: { type: boolean } }
+        - { name: sort, in: query, schema: { type: string, enum: [username, full_name, role, created_at, last_login_at], default: full_name } }
+        - { name: order, in: query, schema: { type: string, enum: [asc, desc], default: asc } }
+        - { name: page, in: query, schema: { type: integer, default: 1 } }
+        - { name: page_size, in: query, schema: { type: integer, default: 20 } }
+      responses:
+        '200':
+          description: A page of users
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: '#/components/schemas/User' }
+                  meta: { $ref: '#/components/schemas/PageMeta' }
+        '403': { $ref: '#/components/responses/Error' }
+    post:
+      tags: [Users]
+      summary: Create a user (admin)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [username, password, full_name]
+              properties:
+                username: { type: string, example: j.smith }
+                password: { type: string, minLength: 8 }
+                full_name: { type: string }
+                email: { type: string, format: email, nullable: true }
+                department: { type: string, nullable: true }
+                role: { $ref: '#/components/schemas/Role' }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: '#/components/schemas/User' }
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '409': { $ref: '#/components/responses/Error' }
+  /users/{id}:
+    parameters:
+      - { $ref: '#/components/parameters/Id' }
+    get:
+      tags: [Users]
+      summary: Get a user (admin)
+      responses:
+        '200':
+          description: The user
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: '#/components/schemas/User' }
+        '404': { $ref: '#/components/responses/Error' }
+    patch:
+      tags: [Users]
+      summary: Update a user, change role, activate / deactivate (admin)
+      description: You cannot demote or deactivate yourself, and the last active admin is protected.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                full_name: { type: string }
+                email: { type: string, format: email, nullable: true }
+                department: { type: string, nullable: true }
+                role: { $ref: '#/components/schemas/Role' }
+                is_active: { type: boolean }
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: '#/components/schemas/User' }
+        '409': { $ref: '#/components/responses/Error' }
+  /users/{id}/reset-password:
+    post:
+      tags: [Users]
+      summary: Set a new password for a user and end their sessions (admin)
+      parameters:
+        - { $ref: '#/components/parameters/Id' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [new_password]
+              properties:
+                new_password: { type: string, minLength: 8 }
+      responses:
+        '204': { description: Password reset }
+  /stats/dashboard:
+    get:
+      tags: [Stats]
+      summary: KPIs, status distribution, cost by supplier, deadlines, maintenance due, recent activity
+      responses:
+        '200':
+          description: Dashboard data
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: '#/components/schemas/Dashboard' }
+  /logs/activity:
+    get:
+      tags: [Logs]
+      summary: Audit trail of data changes (admin)
+      parameters:
+        - { name: search, in: query, schema: { type: string } }
+        - { name: user_id, in: query, schema: { type: integer } }
+        - { name: action, in: query, schema: { type: string, example: mold.create } }
+        - { name: entity_type, in: query, schema: { type: string, example: mold } }
+        - { name: from, in: query, schema: { type: string, format: date-time } }
+        - { name: to, in: query, schema: { type: string, format: date-time } }
+        - { name: page, in: query, schema: { type: integer, default: 1 } }
+        - { name: page_size, in: query, schema: { type: integer, default: 20 } }
+      responses:
+        '200':
+          description: A page of activity entries
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: '#/components/schemas/ActivityLog' }
+                  meta: { $ref: '#/components/schemas/PageMeta' }
+  /logs/logins:
+    get:
+      tags: [Logs]
+      summary: Login attempts (admin)
+      parameters:
+        - { name: search, in: query, schema: { type: string } }
+        - { name: success, in: query, schema: { type: boolean } }
+        - { name: from, in: query, schema: { type: string, format: date-time } }
+        - { name: to, in: query, schema: { type: string, format: date-time } }
+        - { name: page, in: query, schema: { type: integer, default: 1 } }
+        - { name: page_size, in: query, schema: { type: integer, default: 20 } }
+      responses:
+        '200':
+          description: A page of login attempts
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: '#/components/schemas/LoginLog' }
+                  meta: { $ref: '#/components/schemas/PageMeta' }
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  parameters:
+    Id:
+      name: id
+      in: path
+      required: true
+      schema: { type: integer }
+    RecordId:
+      name: recordId
+      in: path
+      required: true
+      schema: { type: integer }
+  responses:
+    Session:
+      description: Access token (refresh token is set as an httpOnly cookie)
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              access_token: { type: string }
+              token_type: { type: string, example: Bearer }
+              expires_in: { type: string, example: 15m }
+              user: { $ref: '#/components/schemas/User' }
+    Error:
+      description: Error
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    ValidationError:
+      description: Validation failed
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Record:
+      description: A trial, revision or maintenance record
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              data: { type: object, additionalProperties: true }
+    RecordList:
+      description: Records, newest first
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              data:
+                type: array
+                items: { type: object, additionalProperties: true }
+  schemas:
+    Error:
+      type: object
+      properties:
+        error:
+          type: object
+          properties:
+            code: { type: string, example: validation_error }
+            message: { type: string, example: Validation failed }
+            details:
+              type: array
+              items:
+                type: object
+                properties:
+                  field: { type: string, example: code }
+                  message: { type: string }
+                  in: { type: string, enum: [body, query, params] }
+    Health:
+      type: object
+      properties:
+        status: { type: string, example: ok }
+        uptime_seconds: { type: integer }
+        database: { type: string, enum: [up, down] }
+    PageMeta:
+      type: object
+      properties:
+        page: { type: integer }
+        page_size: { type: integer }
+        total: { type: integer }
+        total_pages: { type: integer }
+    Role:
+      type: string
+      enum: [admin, engineer, viewer]
+    MoldStatus:
+      type: string
+      enum: [trial, active, revision, maintenance, retired]
+    PaymentStatus:
+      type: string
+      enum: [unpaid, partial, paid]
+    LoginRequest:
+      type: object
+      required: [username, password]
+      properties:
+        username: { type: string }
+        password: { type: string }
+    User:
+      type: object
+      properties:
+        id: { type: integer }
+        username: { type: string }
+        full_name: { type: string }
+        email: { type: string, nullable: true }
+        department: { type: string, nullable: true }
+        role: { $ref: '#/components/schemas/Role' }
+        is_active: { type: boolean }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time, nullable: true }
+        last_login_at: { type: string, format: date-time, nullable: true }
+    Supplier:
+      type: object
+      properties:
+        id: { type: integer }
+        name: { type: string }
+        country: { type: string, nullable: true }
+        contact_email: { type: string, nullable: true }
+        mold_count: { type: integer }
+    SupplierInput:
+      type: object
+      required: [name]
+      properties:
+        name: { type: string }
+        country: { type: string, nullable: true }
+        contact_email: { type: string, format: email, nullable: true }
+    MoldInput:
+      type: object
+      required: [code, name]
+      properties:
+        code: { type: string, example: M-2026-014 }
+        name: { type: string, example: Housing cover 4-cavity }
+        project: { type: string, nullable: true }
+        status: { $ref: '#/components/schemas/MoldStatus' }
+        supplier_id: { type: integer, nullable: true }
+        cavities: { type: integer, minimum: 1, maximum: 128 }
+        material: { type: string, nullable: true, example: PA66-GF30 }
+        start_date: { type: string, format: date, nullable: true }
+        deadline: { type: string, format: date, nullable: true }
+        cost: { type: number, minimum: 0 }
+        payment_status: { $ref: '#/components/schemas/PaymentStatus' }
+        notes: { type: string, nullable: true }
+    MoldSummary:
+      allOf:
+        - $ref: '#/components/schemas/MoldInput'
+        - type: object
+          properties:
+            id: { type: integer }
+            supplier_name: { type: string, nullable: true }
+            is_archived: { type: boolean }
+            trial_count: { type: integer }
+            revision_count: { type: integer }
+            maintenance_count: { type: integer }
+            revision_cost: { type: number }
+            created_at: { type: string, format: date-time }
+    MoldDetail:
+      allOf:
+        - $ref: '#/components/schemas/MoldSummary'
+        - type: object
+          properties:
+            trials: { type: array, items: { $ref: '#/components/schemas/Trial' } }
+            revisions: { type: array, items: { $ref: '#/components/schemas/Revision' } }
+            maintenance: { type: array, items: { $ref: '#/components/schemas/Maintenance' } }
+            totals:
+              type: object
+              properties:
+                purchase_cost: { type: number }
+                revision_cost: { type: number }
+                maintenance_cost: { type: number }
+                total_cost: { type: number }
+                trial_shots: { type: integer }
+    TrialInput:
+      type: object
+      required: [trial_date]
+      properties:
+        trial_date: { type: string, format: date }
+        material: { type: string, nullable: true }
+        color: { type: string, nullable: true }
+        quantity: { type: integer, minimum: 0 }
+        outcome: { type: string, enum: [pass, conditional, fail] }
+        result: { type: string, nullable: true }
+        operator: { type: string, nullable: true }
+    Trial:
+      allOf:
+        - $ref: '#/components/schemas/TrialInput'
+        - type: object
+          properties:
+            id: { type: integer }
+            mold_id: { type: integer }
+    RevisionInput:
+      type: object
+      required: [revision_date, work_done]
+      properties:
+        revision_date: { type: string, format: date }
+        vendor: { type: string, nullable: true }
+        work_done: { type: string }
+        cost: { type: number, minimum: 0 }
+        payment_status: { $ref: '#/components/schemas/PaymentStatus' }
+        notes: { type: string, nullable: true }
+    Revision:
+      allOf:
+        - $ref: '#/components/schemas/RevisionInput'
+        - type: object
+          properties:
+            id: { type: integer }
+            mold_id: { type: integer }
+    MaintenanceInput:
+      type: object
+      required: [maintenance_date, description]
+      properties:
+        maintenance_date: { type: string, format: date }
+        description: { type: string }
+        technician: { type: string, nullable: true }
+        status: { type: string, enum: [planned, in_progress, completed] }
+        cost: { type: number, minimum: 0 }
+    Maintenance:
+      allOf:
+        - $ref: '#/components/schemas/MaintenanceInput'
+        - type: object
+          properties:
+            id: { type: integer }
+            mold_id: { type: integer }
+    ActivityLog:
+      type: object
+      properties:
+        id: { type: integer }
+        user_id: { type: integer, nullable: true }
+        user_name: { type: string, nullable: true }
+        action: { type: string, example: mold.update }
+        entity_type: { type: string, nullable: true }
+        entity_id: { type: integer, nullable: true }
+        description: { type: string, nullable: true }
+        created_at: { type: string, format: date-time }
+    LoginLog:
+      type: object
+      properties:
+        id: { type: integer }
+        user_id: { type: integer, nullable: true }
+        username: { type: string }
+        success: { type: boolean }
+        ip_address: { type: string, nullable: true }
+        user_agent: { type: string, nullable: true }
+        created_at: { type: string, format: date-time }
+    Dashboard:
+      type: object
+      properties:
+        kpis:
+          type: object
+          properties:
+            total_molds: { type: integer }
+            active_molds: { type: integer }
+            in_revision: { type: integer }
+            overdue_deadlines: { type: integer }
+            due_soon: { type: integer }
+            unpaid_molds: { type: integer }
+            maintenance_due: { type: integer }
+            purchase_cost: { type: number }
+            revision_cost: { type: number }
+            maintenance_cost: { type: number }
+            total_cost: { type: number }
+        status_distribution:
+          type: array
+          items:
+            type: object
+            properties:
+              status: { $ref: '#/components/schemas/MoldStatus' }
+              count: { type: integer }
+        cost_by_supplier:
+          type: array
+          items:
+            type: object
+            properties:
+              supplier: { type: string }
+              mold_cost: { type: number }
+              revision_cost: { type: number }
+              total_cost: { type: number }
+              molds: { type: integer }
+        upcoming_deadlines: { type: array, items: { type: object, additionalProperties: true } }
+        maintenance_due: { type: array, items: { type: object, additionalProperties: true } }
+        recent_activity: { type: array, items: { $ref: '#/components/schemas/ActivityLog' } }

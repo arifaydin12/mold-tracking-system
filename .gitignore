@@ -1,5 +1,8 @@
 node_modules/
+frontend/node_modules/
+frontend/dist/
 dist/
+coverage/
 .env
 .env.*
 !.env.example
@@ -10,3 +13,5 @@ dist/
 npm-debug.log*
 .DS_Store
 .vscode/
+.idea/
+Thumbs.db
